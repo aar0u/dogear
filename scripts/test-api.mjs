@@ -70,9 +70,13 @@ try {
 
   // settings incl. line spacing
   assert.equal((await (await call("/api/settings")).json()).settings, null);
-  assert.equal((await post("/api/settings", { settings: { fontSize: 20, vertical: false, bg: "", leading: 1.7 }, updatedAt: 10 })).status, 200);
-  assert.deepEqual((await (await call("/api/settings")).json()).settings, { fontSize: 20, vertical: false, bg: "", leading: 1.7 });
-  assert.equal((await post("/api/settings", { settings: { fontSize: 20, vertical: false, bg: "", leading: 9 } })).status, 400);
+  assert.equal((await post("/api/settings", { settings: { bg: "", leading: 1.7 }, updatedAt: 10 })).status, 200);
+  assert.deepEqual((await (await call("/api/settings")).json()).settings, { bg: "", leading: 1.7 });
+  assert.equal((await post("/api/settings", { settings: { bg: "", leading: 9 } })).status, 400, "spacing out of range");
+  assert.equal((await post("/api/settings", { settings: { bg: "Not Valid!" } })).status, 400, "paper name");
+  // a client that still sends the retired fields is accepted, and they are not stored
+  assert.equal((await post("/api/settings", { settings: { fontSize: 20, vertical: true, bg: "pink", leading: 1.5 }, updatedAt: 20 })).status, 200);
+  assert.deepEqual((await (await call("/api/settings")).json()).settings, { bg: "pink", leading: 1.5 });
 
   // bookmarks
   const marks = [{ id: "m1", chapter: 1, offset: 7, label: "好句", createdAt: 5 }];

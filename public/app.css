@@ -1,5 +1,4 @@
 :root {
-  --font-size: 24px;
   --bg: #f7f2e9;
   --fg: #2c2620;
   --muted: #8d8478;
@@ -172,8 +171,9 @@ button {
   max-width: 38em;
   margin: 0 auto;
   padding: calc(1.2rem + env(safe-area-inset-top)) 1.2rem max(0.8rem, env(safe-area-inset-bottom));
-  font-size: var(--font-size);
-  line-height: calc(4 / 3); /* 行距（行間空白）= 字號的 1/3 */
+  /* the real size and line height are set inline by applyGrid */
+  font-size: 24px;
+  line-height: calc(4 / 3);
   /* anchor + stacking context for #ttsHl, whose z-index -1 must sit behind
      the glyphs but still above the page background */
   position: relative;
@@ -222,101 +222,6 @@ button {
   margin-block-end: var(--pitch, 1.2em);
   font-weight: 700;
   color: var(--accent);
-}
-
-/* ---------- vertical reading (直排) ----------
-   The writing mode goes on #content, which is the horizontal scroll
-   container (start = right edge, scrollLeft runs 0 → negative) — the
-   document itself must NEVER scroll: iOS Safari mispositions position:fixed
-   overlays while the document scrolls horizontally, letting the bars ride
-   off-screen with the text. Keeping the fixed chrome in a non-scrolling
-   horizontal-tb document sidesteps that entirely. :has(#content) keeps the
-   library page normal while the toggle is on. */
-
-:root[data-vertical]:has(#content),
-:root[data-vertical]:has(#content) body {
-  height: 100%;
-  overflow: hidden;
-}
-
-/* The page box (整頁模式, graded on-device via /pagedtest): #pagebox owns
-   the margins and CLIPS, #content inside it is exactly N×pitch wide, so a
-   column that would straddle the page edge is physically unrenderable —
-   before this, the scroller painted through its own padding and a sliver of
-   the next page's first column peeked in. 頁邊距 is 0 (user 07-28); the
-   safe-area insets remain as the landscape floor, and the few pixels
-   avail − N×pitch leave over become an even margin via the centering. */
-[data-vertical] #pagebox {
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
-  display: flex;
-  justify-content: center;
-  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
-}
-
-/* Landscape: the horizontal safe-area insets appear (they are 0 in portrait
-   on this phone) and at 頁邊距 0 they cost several columns — user report
-   07-28. Only the side with the Dynamic Island actually needs one, and on
-   this phone in landscape that is the LEFT (user, same day), so the right
-   inset is dropped and the left kept. iOS reports the pair symmetrically,
-   which is why the wasted side has to be picked here rather than by env()
-   alone; /vhtest prints both insets and screen.orientation.angle if this
-   ever needs to follow the rotation direction instead. */
-@media (orientation: landscape) {
-  [data-vertical] #pagebox { padding-right: 0; }
-}
-
-[data-vertical] #content {
-  writing-mode: vertical-rl;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  /* scroll anchoring re-applies a page turn's delta on this flipped-axis
-     scroller (doubled turns on iOS, which ignores this property — pageScroll
-     guards there); opt out where the engine honors it */
-  overflow-anchor: none;
-  /* width comes from applyGrid (N×pitch) — the page IS the scrollport */
-  height: 100%;
-  max-width: none;
-  margin: 0;
-  /* the bars are transient overlays, so no need to keep clear of them; the
-     bottom deliberately eats into the home-indicator inset — reserving the
-     full inset + 1.2rem left a ~2-glyph dead band under every column in the
-     installed PWA, and the indicator pill only grazes the bottom center.
-     Top: inset − 0.4rem puts the first glyph just under the island without
-     overlapping it (picked on-device via the /vhtest 頂端 strip; ×0.75
-     already collided) and collapses to 0.6rem wherever the inset is 0.
-     No horizontal padding: it would paint outside the page box. */
-  padding: max(0.6rem, calc(env(safe-area-inset-top) - 0.4rem)) 0 max(0.6rem, calc(env(safe-area-inset-bottom) * 0.5));
-}
-
-/* Installed-app quirk (iOS): after some launches the standalone web view is
-   top-aligned with the physical screen (env safe-area-inset-top = 62) while
-   dvh still reports a viewport 62pt short — and the band BELOW the layout
-   viewport is painted and visible, i.e. claimable reading space at the
-   bottom. Other launches of the same install sit below the status bar
-   instead (env top = 0, dvh correct). The min() term makes this exactly
-   self-adapting: it adds the top inset only when vh exceeds dvh by at least
-   that much, and is a no-op where dvh already spans the full screen
-   (Android edge-to-edge standalone). Browsers keep pure dvh — Safari's and
-   Brave's toolbars need dvh's dynamic tracking. */
-@media (display-mode: standalone) {
-  :root[data-vertical]:has(#content),
-  :root[data-vertical]:has(#content) body,
-  [data-vertical] #pagebox {
-    height: calc(100dvh + min(env(safe-area-inset-top, 0px), 100vh - 100dvh));
-  }
-  /* bottom-anchored chrome hugs the physical screen edge, not the short
-     layout viewport that fixed positioning resolves against */
-  [data-vertical] .botnav {
-    transform: translateY(min(env(safe-area-inset-top, 0px), 100vh - 100dvh));
-  }
-  [data-vertical] .playerbar,
-  [data-vertical] .jumpnote {
-    transform: translate(-50%, min(env(safe-area-inset-top, 0px), 100vh - 100dvh));
-  }
 }
 
 /* ---------- bottom nav ---------- */

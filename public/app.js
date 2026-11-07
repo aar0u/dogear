@@ -52,24 +52,21 @@ const BACKGROUNDS = [
 ];
 
 // factory defaults: light theme, 金褐 paper (sampled off the user's preferred
-// reader screenshot, #e0cb97), 直排 — a value the user ever set on this
+// reader screenshot, #e0cb97) — a value the user ever set on this
 // device (even back to these) always wins; null means untouched
-const DEFAULTS = { theme: "light", bg: "gold-brown", vertical: false, lines: 11, leading: 4 / 3 };
+const DEFAULTS = { theme: "light", bg: "gold-brown", lines: 11, leading: 4 / 3 };
 
 // line spacing = 行距 ÷ 字號, cycled by the ↕ button. 4/3 is the pre-existing
 // look (字級 = pitch × ¾), so the first step is the unchanged default.
 const LEADINGS = [1.2, 4 / 3, 1.5, 1.7, 1.9, 2.1];
 
-// fontSize, vertical and bg sync to the server per reader id (settingsChanged
-// marks + schedules the push); theme and lines deliberately stay per-device
+// bg and leading sync to the server (settingsChanged marks + schedules the
+// push); theme and lines deliberately stay per-device
 const settings = {
-  get fontSize() { return Number(localStorage.getItem("dogear_font")) || 24; },
-  set fontSize(v) { localStorage.setItem("dogear_font", String(v)); applySettings(); settingsChanged(); },
-  // 直排 text size, expressed the way the page is actually built: how many
-  // columns fit on one page (字級 = pitch × ¾ follows from it). Per-device
-  // like theme — a phone and a tablet want the same physical text size,
-  // which is a DIFFERENT column count on each, so syncing it would make one
-  // of them wrong (user 07-28).
+  // Text size, expressed as how many lines fit on a phone-width page (see
+  // gridPitch). Per-device like theme: a phone and a tablet want the same
+  // physical text size, which is a DIFFERENT line count on each, so syncing it
+  // would make one of them wrong.
   get lines() {
     const v = Number(localStorage.getItem("dogear_lines"));
     return v >= 4 && v <= 40 ? v : DEFAULTS.lines;
@@ -78,11 +75,6 @@ const settings = {
     localStorage.setItem("dogear_lines", String(Math.min(40, Math.max(4, Math.round(v)))));
     applySettings();
   },
-  // the width 每頁行數 was calibrated against: the 直排 page in PORTRAIT.
-  // Kept so that rotating or switching to 橫排 can reuse the SAME pitch
-  // instead of re-deriving a different text size for a different viewport.
-  get calibWidth() { return Number(localStorage.getItem("dogear_calibw")) || 0; },
-  set calibWidth(v) { localStorage.setItem("dogear_calibw", String(Math.round(v))); },
   get leading() {
     const v = Number(localStorage.getItem("dogear_leading"));
     return v >= 1.1 && v <= 2.5 ? v : DEFAULTS.leading;
@@ -90,11 +82,6 @@ const settings = {
   set leading(v) { localStorage.setItem("dogear_leading", String(v)); applySettings(); settingsChanged(); },
   get theme() { return localStorage.getItem("dogear_theme") ?? DEFAULTS.theme; },
   set theme(v) { localStorage.setItem("dogear_theme", v); applySettings(); },
-  get vertical() {
-    const v = localStorage.getItem("dogear_vertical");
-    return v === null ? DEFAULTS.vertical : v === "1";
-  },
-  set vertical(v) { localStorage.setItem("dogear_vertical", v ? "1" : "0"); applySettings(); settingsChanged(); },
   get bg() { return localStorage.getItem("dogear_bg") ?? DEFAULTS.bg; },
   set bg(v) { localStorage.setItem("dogear_bg", v); applySettings(); settingsChanged(); },
 };
@@ -126,13 +113,10 @@ function toggleWake() {
 
 function applySettings() {
   const root = document.documentElement;
-  root.style.setProperty("--font-size", settings.fontSize + "px");
   root.dataset.theme = settings.theme;
-  if (settings.vertical) root.dataset.vertical = "";
-  else delete root.dataset.vertical;
   if (settings.bg) root.dataset.bg = settings.bg;
   else delete root.dataset.bg;
-  applyGrid(); // 直排 typography is derived, so it re-derives with settings
+  applyGrid(); // the line size and height are derived from the settings
 }
 
 // A size or spacing change reflows the whole line grid, so without
@@ -155,8 +139,7 @@ function resetSettings() {
   settings.bg = DEFAULTS.bg;
   settings.lines = DEFAULTS.lines;
   settings.leading = DEFAULTS.leading;
-  settings.vertical = DEFAULTS.vertical;
-  for (const key of ["dogear_tts", "dogear_tts_rate", "dogear_wake", "dogear_calibw"]) {
+  for (const key of ["dogear_tts", "dogear_tts_rate", "dogear_wake"]) {
     try { localStorage.removeItem(key); } catch { /* private mode */ }
   }
   reanchor();
@@ -184,8 +167,7 @@ function toggleFullscreen() {
 // THIS window (the same arithmetic as gridPitch); the stored value is always
 // among them.
 function sizeOptions() {
-  const raw = settings.calibWidth || Math.min(innerWidth, innerHeight);
-  const basis = Math.min(raw, innerWidth > 700 ? 340 : 480);
+  const basis = gridBasis();
   const px = (n) => Math.round(Math.max(8, Math.floor(basis / n)) * 0.75);
   const byPx = new Map();
   for (let n = 40; n >= 4; n--) {
@@ -228,84 +210,32 @@ function toggleSettings() {
   addEventListener("pointerdown", close, true);
 }
 
-function toggleVertical() {
-  settings.vertical = !settings.vertical;
-  // the whole layout just reflowed — reset both scrollers, then land back
-  // on the same paragraph in the new orientation
-  scrollTo(0, 0);
-  const c = vScroller();
-  if (c) c.scrollLeft = 0;
-  restoreScroll(state.off);
-}
+// ---------- line grid ----------
+//
+// The text size is a number of lines per phone-width page, and everything else
+// follows from it:
+//
+//     font  = floor(basis / lines) × ¾     the size of the characters
+//     pitch = font × leading                the line height, a whole number of px
+//                                           (iOS snaps line advances to whole
+//                                           pixels; a fractional pitch made
+//                                           the lines drift)
+//
+// The document scrolls, freely. `band` is the document y of the first line
+// at scroll 0 (#content's padding-top), which is where a restored position
+// and the position tracker look.
+const GRID = { pitch: 0, band: 0 };
 
-// In 直排 the horizontal scroller is #content, never the document — iOS
-// Safari lets position:fixed chrome drift off-screen when the document
-// itself scrolls horizontally. scrollLeft follows the CSSOM flipped-blocks
-// convention: 0 at the start (right edge), growing NEGATIVE as reading
-// advances leftward.
-const vScroller = () => $("#content");
+// THE text size. It is "lines per page across a phone-width page", so on a
+// desktop window (whose shorter side is ~1000 px) it would come out at 70+ px:
+// the basis is capped there.
+const gridBasis = () => Math.min(Math.min(innerWidth, innerHeight), innerWidth > 700 ? 340 : 480);
 
-// ---------- paged grid (整頁模式) ----------
-//
-// N (lines per page) is the primitive; everything else follows:
-//
-//     pitch = floor(avail / N)   INTEGER px — iOS snaps line advances to
-//                                whole pixels, and a fractional pitch made
-//                                the grid creep ~2 px per page (on-device
-//                                /pagedtest, 2026-07-28)
-//     字級  = pitch × ¾          keeps 行距 = 字號的 1/3, the reader's look
-//     page  = N × pitch          one page's worth of the block axis
-//
-// Because the page is an exact multiple of the line pitch, page boundaries
-// always fall BETWEEN lines: no line is ever sliced, and paging back is the
-// same subtraction as paging forward — the asymmetry that killed every
-// measured algorithm cannot exist here. Nothing is "filled" on the fly.
-//
-// N is derived per device from the synced 字級 rather than stored: two
-// devices of different sizes then show the same physical text (and
-// naturally different line counts), and A± simply picks N∓1.
-//
-// The two writing modes differ only in how the page is FENCED:
-//   直排 — #content is the scroller and is exactly N×pitch wide, inside
-//          #pagebox which clips; the scrollport IS the page.
-//   橫排 — the DOCUMENT scrolls, so there is nothing to clip against;
-//          instead the grid is anchored to the viewport's reading band
-//          (#content's padding-top below the notch), and every landing puts
-//          a line boundary exactly at the top of that band. band = k·step
-//          then holds N whole lines with the leftover as bottom margin.
-const GRID = { N: 0, pitch: 0, span: 0, band: 0 };
-
-function gridAvail() {
-  if (settings.vertical) {
-    const box = $("#pagebox");
-    if (!box) return 0;
-    const cs = getComputedStyle(box);
-    return box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  }
-  const c = $("#content");
-  if (!c) return 0;
-  const cs = getComputedStyle(c);
-  // the band between the safe-area paddings; the bars are overlays and do
-  // not reserve space (same call as 直排)
-  return innerHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-}
-
-// THE text size, and the only thing that is calibrated: 每頁行數 columns
-// across the 直排 page in PORTRAIT. Rotating or switching to 橫排 must not
-// resize the text (user 07-28) — those viewports simply fit a different
-// NUMBER of lines of the same size. The calibration re-measures itself
-// whenever 直排 is on screen in portrait, so a device only ever needs to be
-// held upright once; until then min(innerWidth, innerHeight) stands in.
-function gridPitch(avail) {
-  if (settings.vertical && innerHeight >= innerWidth && avail > 0)
-    settings.calibWidth = avail;
-  // The size is "每頁行數 across a phone-width page", so on a desktop window (whose
-  // shorter side is ~1000 px) it would come out at 70+ px. Cap the basis there.
-  const raw = settings.calibWidth || Math.min(innerWidth, innerHeight);
-  const basis = Math.min(raw, innerWidth > 700 ? 340 : 480);
-  // 字級 comes from 每頁行數 at the default spacing; 行距 is that times the
-  // chosen leading, so changing the leading moves the lines apart without
-  // resizing the text.
+function gridPitch() {
+  const basis = gridBasis();
+  // the size comes from the line count at the default spacing; the line height
+  // is that times the chosen leading, so changing the leading moves the lines
+  // apart without resizing the text
   const font = Math.max(8, Math.floor(basis / settings.lines)) * 0.75;
   return { font, pitch: Math.max(8, Math.round(font * settings.leading)) };
 }
@@ -313,83 +243,17 @@ function gridPitch(avail) {
 function applyGrid() {
   const c = $("#content");
   if (!c) return;
-  const avail = gridAvail();
-  if (avail <= 0) return;
-  const { font, pitch } = gridPitch(avail);
-  // as many whole lines of that size as this viewport holds; 寬度除不盡的
-  //餘數變成兩邊的 padding (the page box centers, so it splits evenly)
-  const N = Math.max(1, Math.floor(avail / pitch));
-  GRID.N = N;
+  const { font, pitch } = gridPitch();
   GRID.pitch = pitch;
-  GRID.span = N * pitch;
-  // 橫排: the document y where the first line sits — page k is exactly
-  // k·span from it, so the band always opens on a line boundary
-  GRID.band = settings.vertical ? 0 : parseFloat(getComputedStyle(c).paddingTop);
-  c.style.width = settings.vertical ? GRID.span + "px" : "";
+  GRID.band = parseFloat(getComputedStyle(c).paddingTop);
   c.style.fontSize = font.toFixed(2) + "px";
   c.style.lineHeight = pitch + "px";
   // paragraph gaps and the chapter head ride this, so every block's size
-  // stays a whole number of lines without any quantization pass
+  // stays a whole number of lines
   c.style.setProperty("--pitch", pitch + "px");
 }
 
-// Page arithmetic. 直排 runs on #content.scrollLeft (0 → negative), 橫排 on
-// the document's scrollY (0 → positive); `dist` is the reading distance
-// from the chapter's start in either, so the page maths below is shared.
-const pageStep = () => GRID.span || 1;
-const scrollDist = (c) => (settings.vertical ? -c.scrollLeft : scrollY);
-const scrollEnd = (c) => (settings.vertical
-  ? c.scrollWidth - c.clientWidth
-  : Math.max(0, document.documentElement.scrollHeight - innerHeight));
-// the scroll position that shows page k (clamped at the chapter's end)
-const pagePos = (c, k) => {
-  const dist = Math.min(scrollEnd(c), Math.max(0, k * pageStep()));
-  return settings.vertical ? -dist : dist;
-};
-// which page a reading distance falls on (1 px of tolerance for rounding)
-const pageAt = (dist) => Math.max(0, Math.floor((dist + 1) / pageStep()));
-const pageAlign = (c, dist) => pagePos(c, pageAt(dist));
-
-// Nearest landing for a free scroll. The valid points are the grid
-// (0, step, 2·step, …) PLUS the chapter's end: the text usually stops
-// mid-page, and that last clamped page is a real page — rounding it back
-// onto the grid would make a chapter's final lines unreachable.
-function snapTarget(c, dist) {
-  const step = pageStep();
-  const end = scrollEnd(c);
-  const kMax = Math.max(0, Math.floor(end / step));
-  const grid = Math.min(kMax, Math.max(0, Math.round(dist / step))) * step;
-  const want = Math.abs(dist - end) < Math.abs(dist - grid) ? end : grid;
-  return settings.vertical ? -want : want;
-}
-
-// One landing API for both modes: 直排 slides #content, 橫排 the document.
-// The 橫排 watcher mirrors vSlide's — it OBSERVES the engine's smooth
-// scroll and must end the moment the animation is over, a finger takes
-// over, or anything else moves the document (a stale "still gliding" state
-// makes the next tap turn from a destination we already left).
-let hGlide = null;
-function pageGlide(c, pos) {
-  if (settings.vertical) return vSlide(c, pos);
-  hGlide = { target: pos, born: Date.now(), last: Math.abs(scrollY - pos) };
-  scrollTo({ top: pos, behavior: "smooth" });
-  const watch = () => {
-    if (!hGlide) return;
-    const gap = Math.abs(scrollY - hGlide.target);
-    if (gap <= 1 || lastUserScroll > hGlide.born) { hGlide = null; return; }
-    if (gap > hGlide.last + 1) { hGlide = null; return; } // moved away: not ours
-    if (Date.now() - hGlide.born > 1500) {
-      const dest = hGlide.target;
-      hGlide = null;
-      scrollTo(0, dest); // animation died short — land it
-      return;
-    }
-    hGlide.last = gap;
-    requestAnimationFrame(watch);
-  };
-  requestAnimationFrame(watch);
-}
-const gliding = () => (settings.vertical ? !!slide : !!hGlide);
+const scrollEnd = () => Math.max(0, document.documentElement.scrollHeight - innerHeight);
 
 // ---------- reader state ----------
 
@@ -1578,7 +1442,7 @@ async function initReader(slug) {
 
   if (offlineEnabled()) persistStorage();
   // settings reconcile rides along with the position fetch — both must land
-  // before the shell builds, so server-synced 直排/字級/背景 apply pre-paint
+  // before the shell builds, so the server-synced paper colour and spacing apply pre-paint
   const [pos] = await Promise.all([resolvePosition(), resolveSettings(state.uid)]);
   buildReaderShell();
   syncMarks(); // background; the panel renders from the local copy either way
@@ -1606,8 +1470,7 @@ let readerWired = false;
 function wireReaderEvents() {
   if (readerWired) return;
   readerWired = true;
-  // capture: in 直排 the scroller is #content and scroll events don't bubble
-  addEventListener("scroll", onScroll, { passive: true, capture: true });
+  addEventListener("scroll", onScroll, { passive: true });
   addEventListener("keydown", onKey);
   addEventListener("click", onTap);
   // not passive: onTouchStart cancels touches that start in the edge band,
@@ -1813,9 +1676,7 @@ function buildReaderShell() {
       // and their panels open on that edge too
       el("button", { id: "tocBtn", class: "iconbtn", title: t("ui.contents"), onclick: toggleToc }, "☰"),
       el("button", { id: "marksBtn", class: "iconbtn", title: t("ui.marks"), onclick: toggleMarks }, "🔖")),
-    // #pagebox is the page frame: in 直排 it owns the margins and clips at
-    // the page edge, so a column can never be sliced (see applyGrid)
-    el("div", { id: "pagebox" }, el("main", { id: "content" })),
+    el("main", { id: "content" }),
     // previous on the left, next on the right, as in any left-to-right UI
     el("footer", { class: "botnav" },
       el("button", { id: "prevBtn", onclick: () => nav(-1) }, t("ui.prev")),
@@ -1824,7 +1685,7 @@ function buildReaderShell() {
     el("div", { id: "toc", class: "toc", hidden: true }),
     el("div", { id: "marks", class: "toc", hidden: true }),
   );
-  applyGrid(); // #pagebox exists now — derive the page before any text lands
+  applyGrid(); // #content exists now — derive the line size before any text lands
 }
 
 // OpenCC cn→tw, the module /admin runs on an upload, loaded the first time
@@ -2080,11 +1941,9 @@ function toggleAudio() {
   loadPlayer().then((m) => m.togglePlayer()).catch(() => {});
 }
 
-// Reading distance of an on-screen rect's START edge (its first line):
-// 直排 lines advance leftward so the start is the RIGHT edge, 橫排 the top.
-const rectDist = (c, r) => (settings.vertical
-  ? -c.scrollLeft + (c.getBoundingClientRect().right - r.right)
-  : r.top + scrollY - GRID.band);
+// Reading distance of an on-screen rect's top edge: its document y, measured
+// from the first line's position at scroll 0.
+const rectDist = (r) => r.top + scrollY - GRID.band;
 
 // The on-screen rect of the CHARACTER at char offset `offset` — page maths
 // must work on the character, not the paragraph: a novel paragraph spans
@@ -2121,22 +1980,13 @@ function followScroll(offset) {
   if (!c) return;
   const r = offsetRect(offset);
   if (!r) return;
-  // 橫排 scrolls freely, so "which page" means nothing; what matters is whether
-  // the spoken character is in the part of the window the overlays leave
-  // clear. If not, put it one line below the top of that part, no animation.
-  if (!settings.vertical) {
-    const { top, bottom } = overlayInsets();
-    if (r.top >= top && r.bottom <= innerHeight - bottom) return;
-    scrollTo(0, Math.min(scrollEnd(c), Math.max(0, scrollY + r.top - top - GRID.pitch)));
-    return;
-  }
-  // paged reading (直排): turn to the PAGE holding the spoken
-  // character (and only when that is not the page already on screen), never
-  // a partial scroll. Absolute target, never scrollBy: on-device scrolltest
-  // 2026-07-28 proved iOS applies relative scrolls TWICE (8/8 layouts)
-  // while absolute APIs are idempotent.
-  const want = pageAt(Math.max(0, rectDist(c, r)));
-  if (want !== pageAt(scrollDist(c))) pageGlide(c, pagePos(c, want));
+  // The page scrolls freely, so what matters is whether the spoken character
+  // is in the part of the window the overlays leave clear. If not, put it one
+  // line below the top of that part, no animation. Absolute target, never
+  // scrollBy: on-device tests showed iOS applies relative scrolls twice.
+  const { top, bottom } = overlayInsets();
+  if (r.top >= top && r.bottom <= innerHeight - bottom) return;
+  scrollTo(0, Math.min(scrollEnd(), Math.max(0, scrollY + r.top - top - GRID.pitch)));
 }
 
 // Paint the sentence the voice is on. NOT the CSS Custom Highlight API: on
@@ -2193,16 +2043,14 @@ function highlightSentence(start, end) {
 function pageStartOffset() {
   const c = $("#content");
   const ps = c?.querySelectorAll("p[data-off]");
-  if (!c || !ps?.length || !GRID.span) return null;
-  if (pageAt(scrollDist(c)) === 0) return 0;
-  // the visible window's start edge, minus 1 px of grid-rounding grace;
-  // scrollDist (not page×span) so the chapter-end clamped page keeps its
-  // true edge
-  // 橫排: lines under the top bar are not on screen, so start below it
-  const lead = Math.max(0, scrollDist(c)) - 1 + (settings.vertical ? 0 : overlayInsets().top);
+  if (!c || !ps?.length || !GRID.pitch) return null;
+  if (scrollY <= 1) return 0; // the top of the chapter: start with its heading
+  // the visible window's top edge, minus 1 px of rounding grace; lines under
+  // the top bar are not on screen, so start below it
+  const lead = scrollY - 1 + overlayInsets().top;
   let prev = null, next = null;
   for (const p of ps) {
-    if (rectDist(c, p.getBoundingClientRect()) <= lead) prev = p;
+    if (rectDist(p.getBoundingClientRect()) <= lead) prev = p;
     else { next = p; break; }
   }
   const nextOff = () => (next ? Number(next.dataset.off) : null);
@@ -2214,7 +2062,7 @@ function pageStartOffset() {
   const at = (i) => {
     range.setStart(node, i);
     range.setEnd(node, i + 1);
-    return rectDist(c, range.getBoundingClientRect());
+    return rectDist(range.getBoundingClientRect());
   };
   let lo = 0, hi = node.length - 1, ans = -1;
   while (lo <= hi) {
@@ -2226,91 +2074,31 @@ function pageStartOffset() {
   return Number(prev.dataset.off) + ans;
 }
 
-function topbarHeight() {
-  return $(".topbar")?.offsetHeight ?? 0;
-}
-
-// Land a 直排 scroll by direct scrollLeft assignment, then hold the target
-// for a few frames. NEVER scrollBy: the on-device scrolltest matrix
-// (2026-07-28) proved this iOS build applies relative scrolls TWICE in all
-// 8 layouts (both writing modes × both scroller kinds, anchoring
-// irrelevant) — which doubled every page turn AND every bookmark restore;
-// a restore that lands long gets saved as the new position, so the
-// bookmark walked forward on each open. Absolute APIs measured 1×
-// everywhere (idempotent by nature); the guard is cheap insurance against
-// anything else moving the scroller, and backs off the moment a finger
-// touches down (or a newer vSnap takes over).
-let vSnapSeq = 0;
-function vSnap(c, target) {
-  slideCancel(); // a direct landing supersedes any in-flight page slide
-  const seq = ++vSnapSeq;
-  c.scrollLeft = target;
-  let frames = 0, fixes = 0;
-  const guard = () => {
-    if (seq !== vSnapSeq || ++frames > 10 || fixes >= 3 || touchStart) return;
-    if (Math.abs(c.scrollLeft - target) > 1) { fixes++; c.scrollLeft = target; }
-    requestAnimationFrame(guard);
-  };
-  requestAnimationFrame(guard);
-}
-
-// Page turns ride the ENGINE's smooth scroll (user verdict 07-28: the
-// /pgtest 原生smooth trial landed exact on device): one scrollTo with an
-// absolute target — idempotent, so the iOS relative-scroll doubling can't
-// touch it even mid-animation. The rAF watcher only OBSERVES: it keeps
-// `slide` alive while the animation runs (a tap mid-slide is the next turn,
-// based off slide.target so rapid taps stay on the grid; the brake logic
-// can tell our own motion from momentum), ends on arrival or user takeover
-// (iOS also kills the native animation itself on touch), and repairs via
-// vSnap only if the animation dies short of the target.
-let slide = null; // { target, raf } — the active page-turn slide
-function slideCancel() {
-  if (slide) { cancelAnimationFrame(slide.raf); slide = null; }
-}
-function vSlide(c, target) {
-  slideCancel();
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return vSnap(c, target);
-  const born = Date.now();
-  const s = { target, raf: 0 };
-  c.scrollTo({ left: target, behavior: "smooth" });
-  const watch = () => {
-    if (slide !== s) return; // a newer landing took over
-    if (lastUserScroll > born) { slide = null; return; } // finger/wheel owns the scroll
-    if (Math.abs(c.scrollLeft - target) <= 1) { slide = null; return; } // landed
-    if (Date.now() - born > 1500) { slide = null; vSnap(c, target); return; }
-    s.raf = requestAnimationFrame(watch);
-  };
-  slide = s;
-  s.raf = requestAnimationFrame(watch);
-}
-
+// Put the text at char offset `offset` (or the chapter's "end", or its top when
+// there is none) back at the top of the window — after a chapter opens, and
+// after a size or spacing change reflowed the text. Absolute scrollTo, never
+// scrollBy: on-device tests showed iOS applies relative scrolls twice, which
+// doubled every restore, and a restore that lands long is saved as the new
+// position, so the bookmark walked forward on each open.
 function restoreScroll(offset) {
   requestAnimationFrame(() => {
-    const c = vScroller();
     if (offset === "end") {
-      // the very end (scrollLeft's minimum on the flipped axis)
-      if (settings.vertical) vSnap(c, c.clientWidth - c.scrollWidth);
-      else scrollTo(0, document.documentElement.scrollHeight);
+      scrollTo(0, document.documentElement.scrollHeight);
       plog(`restore 末頁 ${where()}`);
       return;
     }
     if (!offset) {
-      if (settings.vertical) vSnap(c, 0);
-      else scrollTo(0, 0);
+      scrollTo(0, 0);
       plog(`restore 首頁 ${where()}`);
       return;
     }
     const r = offsetRect(offset);
     if (r) {
-      // the reading distance of the bookmarked character, then the PAGE
-      // that contains it: a bookmark must reopen on a whole page, never
-      // mid-page, or restore→save→restore stops being a fixed point — and
-      // it must be the character's page, not the paragraph's first page,
-      // or a long paragraph reopens a page early
-      const dist = Math.max(0, rectDist(c, r));
-      const pos = pageAlign(c, dist);
-      if (settings.vertical) vSnap(c, pos);
-      else scrollTo(0, pos);
+      // the character's own line goes to the top of the reading band, so
+      // restore → track → save → restore is a fixed point: the tracker reads
+      // the paragraph at that line back as the same offset
+      const dist = Math.max(0, rectDist(r));
+      scrollTo(0, dist);
       plog(`restore off${offset} dist${Math.round(dist)} → ${where()}`);
     } else plog(`restore off${offset} 無rect ${where()}`);
   });
@@ -2362,14 +2150,10 @@ const plog = (() => {
   }
   return line;
 })();
-// the bookmark and the screen it sits on, in one token: chapter, offset, the
-// page on screen, raw scroll, grid pitch×lines, 直排 calibration, viewport
+// the bookmark and the screen it sits on, in one token: chapter, offset, raw
+// scroll, line pitch, viewport
 function where() {
-  const c = $("#content");
-  const pg = c && GRID.span ? pageAt(scrollDist(c)) : "-";
-  const sl = c ? (settings.vertical ? c.scrollLeft : scrollY) : 0;
-  return `ci${state.idx} off${state.off} pg${pg} sl${Math.round(sl)}`
-    + ` p${GRID.pitch}×${GRID.N} cw${settings.calibWidth} ${innerWidth}×${innerHeight}`;
+  return `ci${state.idx} off${state.off} sl${Math.round(scrollY)} p${GRID.pitch} ${innerWidth}×${innerHeight}`;
 }
 const fmtPos = (p) => (p ? `ci${p.chapter} off${p.offset} @${p.updatedAt || 0}` : "無");
 
@@ -2377,30 +2161,8 @@ let scrollTick = 0;
 let lastScrollEvent = 0;
 function onScroll() {
   lastScrollEvent = Date.now();
-  // 直排 only: a free pan must SETTLE on a page. 橫排 scrolls naturally —
-  // snapping there fought the wheel and trackpad with a second animation.
-  if (settings.vertical) {
-    clearTimeout(snapTick);
-    snapTick = setTimeout(snapToPage, 180);
-  }
   if (scrollTick) return;
   scrollTick = setTimeout(() => { scrollTick = 0; trackScroll(); }, 400);
-}
-
-let snapTick = 0;
-function snapToPage() {
-  snapTick = 0;
-  const c = $("#content");
-  if (!c || state.loading || !GRID.span) return;
-  // our own page turn is already heading for a page point; a finger on the
-  // glass owns the scroller until it lifts
-  if (gliding() || touchStart || Date.now() - lastScrollEvent < 150) {
-    if (Date.now() - lastScrollEvent < 3000) snapTick = setTimeout(snapToPage, 180);
-    return;
-  }
-  const target = snapTarget(c, scrollDist(c));
-  const now = settings.vertical ? c.scrollLeft : scrollY;
-  if (Math.abs(target - now) > 1) pageGlide(c, target);
 }
 
 function trackScroll() {
@@ -2408,44 +2170,13 @@ function trackScroll() {
   const c = $("#content");
   const ps = c?.querySelectorAll("p[data-off]");
   if (!ps || !ps.length) return;
-  // Paged reading: a page holds many paragraphs, and the page we are on is
-  // the page that CONTAINS the tracked point — so while that point is still
-  // in front of us, it is still the position. Without this the tracker
-  // would coarsen every restore to the page's first paragraph, and each
-  // reflow (A±, rotation) would ratchet the bookmark a page backward.
-  // 直排 only: scrolling is free in 橫排, so a tracked point that is still
-  // somewhere on a page-sized band would pin the position for up to a page
-  // of reading and the progress would lag behind the text.
-  if (settings.vertical && state.off && GRID.span) {
-    let cur = null;
-    for (const p of ps) {
-      if (Number(p.dataset.off) <= state.off) cur = p;
-      else break;
-    }
-    const r = cur?.getBoundingClientRect();
-    if (r) {
-      const page = c.getBoundingClientRect();
-      const onPage = settings.vertical
-        ? r.right > page.left && r.left < page.right
-        : r.bottom > GRID.band && r.top < GRID.band + GRID.span;
-      if (onPage) return;
-    }
-  }
-  // binary search: first paragraph not yet scrolled past the reading edge —
-  // below the top bar when horizontal, left of the right edge when vertical
-  // (vertical-rl columns exit rightward as reading advances leftward)
-  const vert = settings.vertical;
-  // the reading edge is where the page starts: 直排 the page box's right
-  // edge (no longer the viewport edge — the page is centered in it), 橫排
+  // binary search: the first paragraph not yet scrolled past the reading edge,
   // the top of the reading band
-  const edge = vert
-    ? c.getBoundingClientRect().right - 4
-    : GRID.band + 4;
-  const past = (r) => (vert ? r.left > edge : r.bottom < edge);
+  const edge = GRID.band + 4;
   let lo = 0, hi = ps.length - 1, ans = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (!past(ps[mid].getBoundingClientRect())) { ans = mid; hi = mid - 1; }
+    if (ps[mid].getBoundingClientRect().bottom >= edge) { ans = mid; hi = mid - 1; }
     else lo = mid + 1;
   }
   const cur = Number(ps[ans].dataset.off);
@@ -2587,10 +2318,7 @@ async function flushSettings(useBeacon = false) {
   if (!uid) return;
   const body = JSON.stringify({
     user: uid,
-    settings: {
-      fontSize: settings.fontSize, vertical: settings.vertical, bg: settings.bg,
-      leading: Number(settings.leading.toFixed(3)),
-    },
+    settings: { bg: settings.bg, leading: Number(settings.leading.toFixed(3)) },
     updatedAt: Number(localStorage.getItem("dogear_settings_ts")) || Date.now(),
   });
   settingsDirty = false;
@@ -2618,8 +2346,7 @@ async function flushSettings(useBeacon = false) {
 // Boot-time reconcile against the server row for this reader id. Called
 // BEFORE the reader shell is built (in parallel with resolvePosition), so a
 // server-wins apply never reflows a rendered chapter — if this ever moves
-// after openChapter, a vertical/fontSize change must redo the toggleVertical
-// dance: reset both scrollers, then restoreScroll(state.off).
+// after openChapter, a paper-colour or spacing change must call reanchor().
 async function resolveSettings(uid) {
   const localTs = Number(localStorage.getItem("dogear_settings_ts")) || 0;
   let remote = null;
@@ -2636,9 +2363,7 @@ async function resolveSettings(uid) {
     // server wins — write the mirrors directly, NOT via the setters (a
     // setter would bump the ts and re-push what we just received)
     try {
-      localStorage.setItem("dogear_font", String(remote.settings.fontSize));
-      localStorage.setItem("dogear_vertical", remote.settings.vertical ? "1" : "0");
-      localStorage.setItem("dogear_bg", remote.settings.bg); // "" = explicit 預設
+      localStorage.setItem("dogear_bg", remote.settings.bg); // "" = explicit default
       if (typeof remote.settings.leading === "number")
         localStorage.setItem("dogear_leading", String(remote.settings.leading));
       localStorage.setItem("dogear_settings_ts", String(remote.updatedAt));
@@ -2646,8 +2371,7 @@ async function resolveSettings(uid) {
     applySettings();
     return;
   }
-  const hasLocal = ["dogear_font", "dogear_vertical", "dogear_bg"]
-    .some((k) => localStorage.getItem(k) !== null);
+  const hasLocal = ["dogear_bg", "dogear_leading"].some((k) => localStorage.getItem(k) !== null);
   if (hasLocal && (!remote || localTs > remote.updatedAt)) {
     // local newer, or the server has no row yet and this device has explicit
     // values — push up. Legacy devices (settings pre-date the sync feature,
@@ -2683,20 +2407,10 @@ function nav(d, to = 0) {
   openChapter(i, to).then(() => flush());
 }
 
-// Keyboard, on a desk. One rule decides all of it: the axis the text FLOWS
-// along turns pages, and the axis across it changes chapters. So the two
-// writing modes swap which pair does what —
-//
-//   直排 (flows leftward)   ←/→ page (← forward)   ↑/↓ chapter (↓ next)
-//   橫排 (flows downward)   ↓/↑ page (↓ forward)   ←/→ chapter (→ next)
-//   space                   forward one page, in both
-//
-// This is the same physical logic the tap zones use (bottom-left is forward
-// in 直排 because forward IS leftward), rather than an abstract "→ means
-// next" that would contradict the text on screen.
-//
-// preventDefault matters: space and the arrows scroll the document natively,
-// which in 橫排 would fight the page grid and land between two lines.
+// Keyboard, on a desk. Space/Shift+Space and PageDown/PageUp turn pages,
+// ←/→ change chapter, ↑/↓ scroll natively. preventDefault matters for the
+// page keys: the browser would otherwise scroll by its own distance, with its
+// own animation, on top of ours.
 function onKey(e) {
   if (e.metaKey || e.ctrlKey || e.altKey) return; // leave browser shortcuts alone
   // a focused control owns its own keys — space activates a button, and the
@@ -2704,12 +2418,9 @@ function onKey(e) {
   if (e.target instanceof Element && e.target.closest("input, textarea, select, button, a")) return;
   // also keeps the lookup below off Object.prototype
   if (e.key !== " " && e.key !== "PageDown" && e.key !== "PageUp" && !e.key.startsWith("Arrow")) return;
-  // 橫排: Space/PageDown/PageUp turn a page, ←/→ change chapter; ↑/↓ are
-  // left to the browser, so they scroll naturally a few lines at a time
-  const KEYS = settings.vertical
-    ? { ArrowLeft: ["page", 1], ArrowRight: ["page", -1],
-        ArrowDown: ["chap", 1], ArrowUp: ["chap", -1] }
-    : { ArrowRight: ["chap", 1], ArrowLeft: ["chap", -1] };
+  // Space/PageDown/PageUp turn a page, ←/→ change chapter; ↑/↓ are left to the
+  // browser, so they scroll naturally a few lines at a time
+  const KEYS = { ArrowRight: ["chap", 1], ArrowLeft: ["chap", -1] };
   const [what, d] =
     e.key === " " ? ["page", e.shiftKey ? -1 : 1]
     : e.key === "PageDown" ? ["page", 1]
@@ -2721,11 +2432,8 @@ function onKey(e) {
   else nav(d);
 }
 
-// Tap zones over the text. The bars start hidden (nothing sets data-bars on
-// load) so the whole screen is reading area:
-//   middle ninth (3×3 grid)  — show/hide the top & bottom bars
-//   bottom-left quarter      — one screen forward (next is leftward in 直排)
-//   bottom-right quarter     — one screen back
+// Tap zones over the text — see tapZone. The bars start hidden (nothing sets
+// data-bars on load) so the whole screen is reading area.
 //
 // Taps are detected from touch events, not click: iOS Safari only
 // synthesizes click for taps on "clickable" elements, so a click listener
@@ -2766,10 +2474,8 @@ function onTouchStart(e) {
   }
   touchStart = e.touches.length === 1
     ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(),
-        // a tap that stops momentum scrolling is a brake, not a page turn —
-        // but scroll events from OUR page slide don't count as momentum: a
-        // tap during the slide is the next page turn
-        still: !!slide || Date.now() - lastScrollEvent > 100 }
+        // a tap that stops momentum scrolling is a brake, not a page turn
+        still: Date.now() - lastScrollEvent > 100 }
     : null;
 }
 
@@ -2850,7 +2556,7 @@ function showTapZones() {
 // chapter — forward to the next one's beginning, backward to the previous
 // one's END (so paging back reads naturally across the boundary).
 let lastPageTurn = 0;
-// 橫排 page turn distance: every whole line that is actually visible, less
+// Page turn distance: every whole line that is actually visible, less
 // PAGE_OVERLAP_LINES, so the last lines you read are still on screen as
 // context. The bars and the player pill are overlays that cover text while
 // they show, so their height is not counted as visible.
@@ -2882,34 +2588,18 @@ function pageScroll(d) {
   if (state.loading) return;
   // de-bounce: at most one turn per 150 ms — a second delivery of the same
   // gesture (a re-fired tap, a synthesized click that slipped a guard) is
-  // absorbed instead of turning twice. vSnap covers the engine side by
-  // holding the landing target for the same ~10 frames.
+  // absorbed instead of turning twice.
   const now = Date.now();
   if (now - lastPageTurn < 150) return;
   lastPageTurn = now;
   lastUserScroll = now; // pause the player's auto-follow, like a swipe
-  const c = $("#content");
-  // A tap mid-slide turns again from the slide's DESTINATION, so rapid taps
-  // stay on the page grid instead of compounding from mid-flight.
-  const inFlight = settings.vertical ? slide?.target : (gliding() ? hGlide.target : null);
-  const base = inFlight == null ? scrollDist(c) : (settings.vertical ? -inFlight : inFlight);
-  const end = scrollEnd(c);
-  if (d > 0 && base >= end - 2) return nav(1);
-  if (d < 0 && base <= 2) return nav(-1, "end");
-  // the final page is clamped short of its own page point (the chapter
-  // simply ends there), so paging back off it must count UP to the page
-  // it overlaps, not round down into the page before that
-  // 橫排: one page is exactly one page of travel from where the text is now,
-  // jumped to with no animation — the page keeps whatever line alignment the
-  // reader scrolled to, and nothing glides to collide with the next input
-  if (!settings.vertical) {
-    scrollTo(0, Math.min(end, Math.max(0, base + d * readStep())));
-    return;
-  }
-  const k = base >= end - 2
-    ? Math.ceil(base / pageStep())
-    : Math.round(base / pageStep());
-  pageGlide(c, pagePos(c, Math.max(0, k + d)));
+  const end = scrollEnd();
+  if (d > 0 && scrollY >= end - 2) return nav(1);
+  if (d < 0 && scrollY <= 2) return nav(-1, "end");
+  // One page is exactly one page of travel from where the text is now, jumped
+  // to with no animation: the page keeps whatever line alignment the reader
+  // scrolled to, and nothing glides to collide with the next input.
+  scrollTo(0, Math.min(end, Math.max(0, scrollY + d * readStep())));
 }
 
 function toggleToc() {

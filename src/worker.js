@@ -337,8 +337,6 @@ async function handlePosition(request, env, url) {
 
 function validSettings(s) {
   return s && typeof s === "object" &&
-    Number.isInteger(s.fontSize) && s.fontSize >= 8 && s.fontSize <= 120 &&
-    typeof s.vertical === "boolean" &&
     typeof s.bg === "string" && /^[a-z-]{0,32}$/.test(s.bg) &&
     (s.leading === undefined || (typeof s.leading === "number" && s.leading >= 1.1 && s.leading <= 2.5));
 }
@@ -355,8 +353,7 @@ async function handleSettings(request, env) {
   if (!body || !validSettings(body.settings)) return json({ error: "invalid body" }, 400);
   const s = body.settings;
   const ts = clampTs(body.updatedAt);
-  const data = { fontSize: s.fontSize, vertical: s.vertical, bg: s.bg,
-    ...(s.leading !== undefined ? { leading: s.leading } : {}) };
+  const data = { bg: s.bg, ...(s.leading !== undefined ? { leading: s.leading } : {}) };
   await putLww(dav, "state/settings.json", { data, updated_at: ts });
   return json({ ok: true });
 }
