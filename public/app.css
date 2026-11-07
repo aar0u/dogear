@@ -142,7 +142,12 @@ button {
   text-decoration: none;
   flex-shrink: 0;
 }
-.iconbtn:hover { background: var(--card); }
+/* hover only where there is a pointer to hover with: on a touch screen :hover
+   sticks to the last element tapped, which made a button that had just been
+   switched OFF look exactly like one switched on (the same background) */
+@media (hover: hover) {
+  .iconbtn:hover { background: var(--card); }
+}
 .iconbtn.active { color: var(--accent); background: var(--card); }
 
 /* A 390 px phone has to hold ten controls AND the title. The buttons never
@@ -458,7 +463,9 @@ button {
 }
 .mark-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
 .mark-row .toc-item { flex: 1; min-width: 0; border-bottom: 0; }
-.toc-item:hover { background: var(--bg); }
+@media (hover: hover) {
+  .toc-item:hover { background: var(--bg); }
+}
 .toc-item.current { color: var(--accent); font-weight: 600; }
 
 /* ---------- library ---------- */
@@ -797,7 +804,9 @@ kbd {
   background: rgba(0, 0, 0, 0.22);
   border-radius: 10px;
 }
-.shelf-offline:hover { background: rgba(0, 0, 0, 0.35); }
+@media (hover: hover) {
+  .shelf-offline:hover { background: rgba(0, 0, 0, 0.35); }
+}
 .shelf-offline.active {
   color: var(--accent);
   background: rgba(247, 241, 223, 0.92);
