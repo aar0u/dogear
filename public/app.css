@@ -346,6 +346,7 @@ button {
 .botnav button:disabled { opacity: 0.35; cursor: default; }
 
 .progress {
+  cursor: pointer; /* a tap toggles full screen */
   font-size: 0.8rem;
   color: var(--muted);
   display: flex;

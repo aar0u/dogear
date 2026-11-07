@@ -165,6 +165,14 @@ function resetSettings() {
   toggleSettings(); // reopen, showing the defaults
 }
 
+// The progress line ("7/915 · 0.6%") toggles full screen. iPhone Safari has no
+// Fullscreen API (only an installed home-screen app is full screen there), so
+// the tap does nothing in that browser.
+function toggleFullscreen() {
+  if (document.fullscreenElement) return void document.exitFullscreen?.();
+  document.documentElement.requestFullscreen?.()?.catch(() => { /* refused here */ });
+}
+
 // ---------- the reading-settings panel ----------
 //
 // Theme, paper colour, text size and line spacing are lists you pick from, not
@@ -1811,7 +1819,7 @@ function buildReaderShell() {
     // previous on the left, next on the right, as in any left-to-right UI
     el("footer", { class: "botnav" },
       el("button", { id: "prevBtn", onclick: () => nav(-1) }, t("ui.prev")),
-      el("div", { class: "progress", id: "progress" }),
+      el("div", { class: "progress", id: "progress", title: t("ui.fullscreen"), onclick: toggleFullscreen }),
       el("button", { id: "nextBtn", onclick: () => nav(1) }, t("ui.next"))),
     el("div", { id: "toc", class: "toc", hidden: true }),
     el("div", { id: "marks", class: "toc", hidden: true }),
