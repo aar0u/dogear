@@ -800,6 +800,28 @@ async function deleteBookOnServer(id) {
   } catch { /* private mode or full: the next shelf load corrects it */ }
 }
 
+// "Replace which book?": the reader picks from the shelf, so a title that differs
+// a little (a file renamed, a "(精校版)" suffix) can still replace its old
+// version. The list starts on the book whose title matches best, so the usual
+// case needs no choice; touching the list stops it following the title field.
+let replaceTouched = false;
+
+function fillReplaceOptions(title) {
+  const books = knownBooks();
+  const sel = $("#upReplace");
+  sel.replaceChildren(
+    el("option", { value: "" }, t("up.replaceNone")),
+    ...books.map((b) => el("option", { value: b.id }, t("up.replaceOption", b.title, b.chapters))));
+  const norm = (s) => s.replace(/[\s（）()【】[\]《》]/g, "").toLowerCase();
+  const want = norm(title);
+  const similar = (b) => {
+    const have = norm(b.title);
+    return want.length >= 2 && have.length >= 2 && (have.includes(want) || want.includes(have));
+  };
+  sel.value = (books.find((b) => norm(b.title) === want) ?? books.find(similar))?.id ?? "";
+  $("#upReplaceRow").hidden = !books.length;
+}
+
 async function onUploadFile(e) {
   const file = e.target.files[0];
   if (!file || uploading) return;
@@ -816,12 +838,12 @@ async function onUploadFile(e) {
     $("#upTitle").value = book.title;
     $("#upAuthor").value = book.author ?? "";
     const chars = book.pieces.reduce((n, p) => n + p.body.length, 0);
-    const duplicate = knownBooks().some((b) => b.title === book.title);
     $("#upSummary").textContent = [
       t("up.summary", book.pieces.length, chars),
       book.headingCount < 3 ? t("up.noHeadings") : "",
     ].filter(Boolean).join(" ");
-    $("#upReplaceRow").hidden = !duplicate; // offered when a book with this title is already there
+    replaceTouched = false;
+    fillReplaceOptions(book.title);
     $("#upMsg").textContent = "";
     $("#upForm").hidden = false;
   } catch (err) {
@@ -885,8 +907,7 @@ async function startUpload() {
     const known = knownBooks();
     // Replacing: the old versions go only AFTER the new one is complete, and the
     // new one takes over their address (slug), so a link to the book keeps working.
-    const replaceIds = !$("#upReplaceRow").hidden && $("#upReplace").checked
-      ? known.filter((b) => b.title === title).map((b) => b.id) : [];
+    const replaceIds = !$("#upReplaceRow").hidden && $("#upReplace").value ? [$("#upReplace").value] : [];
     const id = newBookId();
     failedUploadId = id; // cleared again on success
     const manifest = {
@@ -962,6 +983,8 @@ async function startUpload() {
 }
 
 $("#upFile").onchange = onUploadFile;
+$("#upReplace").onchange = () => { replaceTouched = true; };
+$("#upTitle").oninput = () => { if (!replaceTouched) fillReplaceOptions($("#upTitle").value); };
 $("#upStart").onclick = () => startUpload();
 $("#upBack").onclick = () => { if (!uploading) renderLibrary(); };
 

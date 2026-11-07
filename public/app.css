@@ -586,7 +586,16 @@ button {
 }
 #uploadScreen input[type="file"] { font: inherit; max-width: 100%; }
 .upwarn { color: var(--accent); }
-.upcheck { display: flex; gap: 0.5rem; align-items: flex-start; }
+#uploadScreen select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 .upbooks { margin: 0.4rem 0 1rem; padding-left: 1.1rem; }
 .upbooks li { margin: 0.35rem 0; }
 .upbar {

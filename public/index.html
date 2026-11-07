@@ -127,9 +127,10 @@
         <p><label><span data-i18n="up.titleLabel">书名</span> <input id="upTitle" type="text"></label></p>
         <p><label><span data-i18n="up.authorLabel">作者</span> <input id="upAuthor" type="text"></label></p>
         <p id="upSummary" class="muted"></p>
-        <p id="upReplaceRow" hidden>
-          <label class="upcheck"><input id="upReplace" type="checkbox" checked> <span data-i18n="up.replace">上传完成后删除同名的旧版本（阅读进度和书签不会带到新版本）</span></label>
-        </p>
+        <div id="upReplaceRow" hidden>
+          <p><label><span data-i18n="up.replaceWith">替换</span> <select id="upReplace"></select></label></p>
+          <p class="muted small" data-i18n="up.replaceNote">新版本传完之后才会删除被替换的书；阅读进度和书签不会带到新版本。</p>
+        </div>
         <p><button id="upStart" class="linklike" data-i18n="up.start">开始上传</button></p>
       </div>
       <div id="upRun" hidden>
