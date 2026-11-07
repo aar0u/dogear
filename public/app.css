@@ -586,6 +586,9 @@ button {
 }
 #uploadScreen input[type="file"] { font: inherit; max-width: 100%; }
 .upwarn { color: var(--accent); }
+.upcheck { display: flex; gap: 0.5rem; align-items: flex-start; }
+.upbooks { margin: 0.4rem 0 1rem; padding-left: 1.1rem; }
+.upbooks li { margin: 0.35rem 0; }
 .upbar {
   display: block;
   height: 6px;

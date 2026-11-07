@@ -178,7 +178,20 @@ async function listBooks(request, env) {
   return json({ books }, 200, { "cache-control": "no-store" });
 }
 
+// DELETE /api/books/<id>: take a published book off the shelf — its folder and
+// this reader's position and bookmarks for it.
+async function deleteBook(env, path) {
+  const id = decodeURIComponent(path.slice("/api/books/".length));
+  if (!ID_RE.test(id)) return json({ error: "bad key" }, 400);
+  const dav = makeDav(env);
+  await dav.remove(`books/${id}`);
+  await Promise.all([dav.remove(`state/pos/${id}.json`), dav.remove(`state/marks/${id}.json`)]);
+  libraryCache = { at: 0, books: null };
+  return json({ ok: true });
+}
+
 async function resolveBook(request, env, path) {
+  if (request.method === "DELETE") return await deleteBook(env, path);
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
   const slug = decodeURIComponent(path.slice("/api/books/".length));
   const b = (await loadLibrary(env)).find((x) => x.slug === slug || x.id === slug);

@@ -753,6 +753,51 @@ function openUpload() {
   $("#upMsg").textContent = "";
   $("#upBack").hidden = false;
   $("#upStart").textContent = t("up.start");
+  $("#upReplaceRow").hidden = true;
+  renderUpBooks();
+}
+
+// The books on the shelf, with a delete button each (from the shelf this device
+// last saw). Deleting is two presses: the first asks, the second does it.
+const knownBooks = () => {
+  try { return JSON.parse(localStorage.getItem("dogear_books")) ?? []; } catch { return []; }
+};
+
+function renderUpBooks() {
+  const books = knownBooks();
+  $("#upBooks").replaceChildren(...books.map((b) => {
+    const btn = el("button", { class: "linklike" }, t("up.delete"));
+    let armed = 0;
+    btn.onclick = async () => {
+      if (!armed) {
+        armed = setTimeout(() => { armed = 0; btn.textContent = t("up.delete"); }, 4000);
+        btn.textContent = t("up.confirmDelete");
+        return;
+      }
+      clearTimeout(armed);
+      btn.disabled = true;
+      btn.textContent = t("up.deleting");
+      try {
+        await deleteBookOnServer(b.id);
+        $("#upMsg").textContent = "";
+      } catch (err) {
+        $("#upMsg").textContent = t("up.deleteFail", err.message);
+      }
+      renderUpBooks();
+    };
+    return el("li", {}, el("span", {}, `${b.title}　`), el("span", { class: "muted" }, t("up.chapters", b.chapters)), " ", btn);
+  }));
+}
+
+async function deleteBookOnServer(id) {
+  const res = await fetch(`/api/books/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  try {
+    localStorage.setItem("dogear_books", JSON.stringify(knownBooks().filter((b) => b.id !== id)));
+    localStorage.removeItem(`dogear_prog_${id}`);
+    const recent = JSON.parse(localStorage.getItem("dogear_uploaded")) ?? [];
+    localStorage.setItem("dogear_uploaded", JSON.stringify(recent.filter((b) => b.id !== id)));
+  } catch { /* private mode or full: the next shelf load corrects it */ }
 }
 
 async function onUploadFile(e) {
@@ -771,12 +816,12 @@ async function onUploadFile(e) {
     $("#upTitle").value = book.title;
     $("#upAuthor").value = book.author ?? "";
     const chars = book.pieces.reduce((n, p) => n + p.body.length, 0);
-    const known = (() => { try { return JSON.parse(localStorage.getItem("dogear_books")) ?? []; } catch { return []; } })();
+    const duplicate = knownBooks().some((b) => b.title === book.title);
     $("#upSummary").textContent = [
       t("up.summary", book.pieces.length, chars),
       book.headingCount < 3 ? t("up.noHeadings") : "",
-      known.some((b) => b.title === book.title) ? t("up.dup") : "",
     ].filter(Boolean).join(" ");
+    $("#upReplaceRow").hidden = !duplicate; // offered when a book with this title is already there
     $("#upMsg").textContent = "";
     $("#upForm").hidden = false;
   } catch (err) {
@@ -837,11 +882,18 @@ async function startUpload() {
     await fetch("/api/upload-cleanup", { method: "POST" }).catch(() => {}); // best effort
     const { piecesToEntries, buildManifest, newBookId, shortSlug } = await import("/split-core.mjs");
     const entries = piecesToEntries(book.pieces);
-    const known = (() => { try { return JSON.parse(localStorage.getItem("dogear_books")) ?? []; } catch { return []; } })();
+    const known = knownBooks();
+    // Replacing: the old versions go only AFTER the new one is complete, and the
+    // new one takes over their address (slug), so a link to the book keeps working.
+    const replaceIds = !$("#upReplaceRow").hidden && $("#upReplace").checked
+      ? known.filter((b) => b.title === title).map((b) => b.id) : [];
     const id = newBookId();
     failedUploadId = id; // cleared again on success
     const manifest = {
-      ...buildManifest({ id, slug: shortSlug(title, known.map((b) => b.slug)), title, entries }),
+      ...buildManifest({
+        id, title, entries,
+        slug: shortSlug(title, known.filter((b) => !replaceIds.includes(b.id)).map((b) => b.slug)),
+      }),
       ...(author ? { author } : {}),
     };
     const put = (file, body, type) => upPut(`/api/upload/${id}/${encodeURIComponent(file)}`, body, type);
@@ -880,8 +932,12 @@ async function startUpload() {
       id, slug: manifest.slug, title, ...(author ? { author } : {}),
       chapters: entries.length, totalChars: manifest.totalChars,
     };
+    let replaceError = "";
+    for (const oldId of replaceIds) {
+      try { await deleteBookOnServer(oldId); } catch (err) { replaceError = err.message; }
+    }
     try {
-      localStorage.setItem("dogear_books", JSON.stringify([...known, added]));
+      localStorage.setItem("dogear_books", JSON.stringify([...knownBooks(), added]));
       localStorage.setItem(`dogear_book_${manifest.slug}`, id);
       localStorage.setItem("dogear_uploaded", JSON.stringify([{ ...added, at: Date.now() }]));
     } catch { /* full */ }
@@ -889,7 +945,8 @@ async function startUpload() {
     pendingBook = null;
     $("#upFill").style.width = "100%";
     $("#upStatus").textContent = "";
-    $("#upMsg").textContent = t("up.done", title);
+    $("#upMsg").textContent = t("up.done", title) + (replaceError ? ` ${t("up.replaceFail", replaceError)}` : "");
+    renderUpBooks();
   } catch (err) {
     $("#upRun").hidden = true;
     $("#upForm").hidden = false;

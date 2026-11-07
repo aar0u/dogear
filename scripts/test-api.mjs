@@ -102,6 +102,17 @@ try {
   assert.equal((await (await call("/api/books")).json()).books.some((b) => b.id === upId), true, "finished: on the shelf at once");
   assert.equal((await call(`/api/upload/${upId}`, { method: "DELETE" })).status, 409, "a published book is never deleted here");
 
+  // deleting a published book takes its files, position and bookmarks with it
+  await post("/api/position", { book: upId, chapter: 0, offset: 1, updatedAt: 3000 });
+  await post("/api/bookmarks", { book: upId, marks: [{ id: "m", chapter: 0, offset: 1, label: "", createdAt: 1 }], updatedAt: 3000 });
+  assert.equal((await call("/api/books/..%2Fx", { method: "DELETE" })).status, 400);
+  assert.equal((await call(`/api/books/${upId}`, { method: "DELETE" }, "wrong")).status, 401);
+  assert.equal((await call(`/api/books/${upId}`, { method: "DELETE" })).status, 200);
+  assert.equal((await (await call("/api/books")).json()).books.some((b) => b.id === upId), false, "off the shelf at once");
+  assert.ok(![...dav.files.keys()].some((k) => k.includes(upId)), "no file of the book is left");
+  assert.equal((await (await call(`/api/position?book=${upId}`)).json()).position, null);
+  assert.equal((await call(`/api/books/${upId}`, { method: "DELETE" })).status, 200, "deleting twice is harmless");
+
   // interrupted uploads: an old unfinished folder is cleared, a recent one and published books stay
   await put("/api/upload/bstale001/0000_a.txt", "a");
   await put("/api/upload/bfresh001/0000_a.txt", "a");
@@ -109,7 +120,7 @@ try {
   const cleaned = await (await call("/api/upload-cleanup", { method: "POST" })).json();
   assert.deepEqual(cleaned.removed, ["bstale001"]);
   assert.ok(!dav.dirs.has("novel/books/bstale001") && ![...dav.files.keys()].some((k) => k.startsWith("novel/books/bstale001/")));
-  assert.ok(dav.dirs.has("novel/books/bfresh001") && dav.dirs.has(`novel/books/${upId}`));
+  assert.ok(dav.dirs.has("novel/books/bfresh001") && dav.dirs.has(`novel/books/${id}`), "a recent upload and a published book stay");
   assert.equal((await call("/api/upload/bfresh001", { method: "DELETE" })).status, 200, "own failed upload can be dropped");
   assert.ok(!dav.dirs.has("novel/books/bfresh001"));
 
