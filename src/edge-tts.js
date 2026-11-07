@@ -91,7 +91,7 @@ function ssml(text, voice, lang) {
 }
 
 // text → Uint8Array of MP3 bytes
-export async function edgeSynthesize(text, voice = "zh-TW-HsiaoChenNeural") {
+export async function edgeSynthesize(text, voice = "zh-CN-XiaoxiaoNeural") {
   const lang = voice.split("-").slice(0, 2).join("-");
   const connectionId = crypto.randomUUID().replaceAll("-", "");
   const url =

@@ -13,7 +13,8 @@ function basicAuth(user, pass) {
 const tag = (name) => `(?:[\\w-]+:)?${name}`;
 const RESPONSE_RE = new RegExp(`<${tag("response")}[\\s>][\\s\\S]*?</${tag("response")}>`, "gi");
 const HREF_RE = new RegExp(`<${tag("href")}>([^<]+)</${tag("href")}>`, "i");
-const COLLECTION_RE = new RegExp(`<${tag("collection")}\\s*/?>`, "i");
+// attributes allowed: Koofr writes <D:collection xmlns:D="DAV:"/>
+const COLLECTION_RE = new RegExp(`<${tag("collection")}(?:\\s[^>]*)?/?>`, "i");
 
 // PROPFIND multistatus -> [{ name, isDir }], without the listed folder itself.
 export function parseListing(xml) {
@@ -40,15 +41,28 @@ export function makeDav(env) {
 
   const urlOf = (path) =>
     root + (path ? "/" + path.split("/").filter(Boolean).map(encodeURIComponent).join("/") : "");
-  const call = (method, path, init = {}) =>
-    fetch(urlOf(path), { method, ...init, headers: { authorization: auth, ...init.headers } });
+  // 429/503 are retried with backoff: Koofr rate limits bursts, and a book upload is hundreds of PUTs
+  const call = async (method, path, init = {}) => {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(urlOf(path), { method, ...init, headers: { authorization: auth, ...init.headers } });
+      if ((res.status !== 429 && res.status !== 503) || attempt >= 4) return res;
+      await res.arrayBuffer();
+      const wait = Number(res.headers.get("retry-after")) * 1000 || 1000 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 15_000)));
+    }
+  };
 
   async function mkcols(path) {
     // create every missing ancestor of a file path, outermost first
     const parts = path.split("/").filter(Boolean);
     const dirs = ["", ...parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join("/"))];
     for (const dir of dirs) {
-      const res = await call("MKCOL", dir);
+      let res = await call("MKCOL", dir);
+      // 423: another request is creating the same folder right now (Koofr); look again
+      for (let i = 0; res.status === 423 && i < 3; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        res = await call("MKCOL", dir);
+      }
       // 405 means "already exists" on every server tried; other codes are real failures
       if (!res.ok && res.status !== 405) throw new Error(`MKCOL ${dir || "/"}: ${res.status}`);
     }
@@ -72,8 +86,8 @@ export function makeDav(env) {
     async put(path, body, contentType = "application/octet-stream") {
       const send = () => call("PUT", path, { body, headers: { "content-type": contentType } });
       let res = await send();
-      // 409: a parent folder is missing
-      if (res.status === 409) {
+      // a missing parent folder is 409 on most servers and 404 on Koofr
+      if (res.status === 409 || res.status === 404) {
         await mkcols(path);
         res = await send();
       }

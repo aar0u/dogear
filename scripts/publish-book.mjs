@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Split a TXT novel into chapters and upload it to the WebDAV library.
+// Split a TXT or EPUB novel into chapters and upload it to the WebDAV library.
 //
-//   node scripts/publish-book.mjs book.txt [--title 书名] [--author 作者] [--slug s]
+//   node scripts/publish-book.mjs book.txt|book.epub [--title 书名] [--author 作者] [--slug s]
+//   node scripts/publish-book.mjs --from-dav 书名.epub     (a file already in DAV_ROOT)
 //
 // DAV_URL, DAV_USER, DAV_PASS (and optional DAV_ROOT) come from the environment
 // or from .dev.vars. The manifest is uploaded last, so a half-finished upload
@@ -10,7 +11,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { unzipSync } from "fflate";
 import { makeDav } from "../src/dav.js";
+import { parseEpub } from "../public/epub-core.mjs";
 import {
   buildManifest, newBookId, piecesToEntries, shortSlug, splitTextIntoPieces,
 } from "../public/split-core.mjs";
@@ -26,7 +29,7 @@ export function decodeText(buf) {
   }
 }
 
-function loadDevVars() {
+export function loadDevVars() {
   const file = join(fileURLToPath(new URL("..", import.meta.url)), ".dev.vars");
   if (!existsSync(file)) return;
   for (const line of readFileSync(file, "utf8").split("\n")) {
@@ -37,6 +40,18 @@ function loadDevVars() {
 
 export async function publishText(dav, text, { title, author = "", slug } = {}) {
   const { pieces, headingCount } = splitTextIntoPieces(text, { bookTitle: title });
+  return { ...(await publishPieces(dav, pieces, { title, author, slug })), headingCount };
+}
+
+export async function publishEpub(dav, bytes, { title, author, slug } = {}) {
+  const book = parseEpub(unzipSync(new Uint8Array(bytes)));
+  if (!book.chapters.length) throw new Error("no readable chapters in this EPUB");
+  return publishPieces(dav, book.chapters, {
+    title: title ?? (book.title || "untitled"), author: author ?? book.author, slug,
+  });
+}
+
+async function publishPieces(dav, pieces, { title, author = "", slug }) {
   const entries = piecesToEntries(pieces);
   if (!entries.length) throw new Error("no text to publish");
 
@@ -50,15 +65,19 @@ export async function publishText(dav, text, { title, author = "", slug } = {}) 
   const finalSlug = slug ?? shortSlug(title, taken);
   const manifest = { ...buildManifest({ id, slug: finalSlug, title, entries }), ...(author ? { author } : {}) };
 
-  let next = 0;
+  const upload = (e) => dav.put(`books/${id}/${e.file}`, e.body, "text/plain; charset=utf-8");
+  // the first file alone: it creates the folders, which parallel requests would race to create
+  await upload(entries[0]);
+  let next = 1;
+  let done = 1;
   await Promise.all(Array.from({ length: 4 }, async () => {
     while (next < entries.length) {
-      const e = entries[next++];
-      await dav.put(`books/${id}/${e.file}`, e.body, "text/plain; charset=utf-8");
+      await upload(entries[next++]);
+      if (++done % 50 === 0) console.log(`uploaded ${done}/${entries.length}`);
     }
   }));
   await dav.putJson(`books/${id}/manifest.json`, manifest);
-  return { id, slug: finalSlug, chapters: entries.length, headingCount, totalChars: manifest.totalChars };
+  return { id, slug: finalSlug, chapters: entries.length, totalChars: manifest.totalChars };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -71,15 +90,25 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const title = opt("title");
   const author = opt("author");
   const slug = opt("slug");
-  const file = args[0];
+  const fromDav = opt("from-dav");
+  const file = fromDav ?? args[0];
   if (!file) {
-    console.error("usage: publish-book.mjs book.txt [--title T] [--author A] [--slug S]");
+    console.error("usage: publish-book.mjs book.txt|book.epub [--title T] [--author A] [--slug S]\n" +
+      "       publish-book.mjs --from-dav <path under DAV_ROOT> ...");
     process.exit(2);
   }
-  const text = decodeText(readFileSync(file));
-  const result = await publishText(makeDav(process.env), text, {
-    title: title ?? basename(file, extname(file)), author, slug,
-  });
+  const dav = makeDav(process.env);
+  let bytes;
+  if (fromDav) {
+    const res = await dav.get(fromDav);
+    if (!res.ok) throw new Error(`GET ${fromDav}: ${res.status}`);
+    bytes = Buffer.from(await res.arrayBuffer());
+  } else {
+    bytes = readFileSync(file);
+  }
+  const result = extname(file).toLowerCase() === ".epub"
+    ? await publishEpub(dav, bytes, { title, author, slug })
+    : await publishText(dav, decodeText(bytes), { title: title ?? basename(file, extname(file)), author, slug });
   console.log(`published ${result.slug} (${result.id}): ${result.chapters} chapters, ${result.totalChars} chars`);
   if (result.headingCount < 3) console.warn("warning: fewer than 3 chapter headings found; the book is one chapter");
 }

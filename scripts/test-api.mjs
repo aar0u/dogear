@@ -89,7 +89,24 @@ try {
     <D:response><D:href>/dav/books/a.txt</D:href><D:propstat><D:prop><D:resourcetype/></D:prop></D:propstat></D:response>
   </D:multistatus>`;
   assert.deepEqual(parseListing(xml), [{ name: "b1 x", isDir: true }, { name: "a.txt", isDir: false }]);
+  // Koofr's form: attributes on <collection/>, no trailing slash on hrefs, props in any order
+  const koofrXml = `<D:multistatus xmlns:D="DAV:">
+    <D:response><D:href>/dav/Koofr/dogear/books</D:href><D:propstat><D:prop><D:resourcetype><D:collection xmlns:D="DAV:"/></D:resourcetype></D:prop></D:propstat></D:response>
+    <D:response><D:href>/dav/Koofr/dogear/books/b1</D:href><D:propstat><D:prop><D:displayname>b1</D:displayname><D:resourcetype><D:collection xmlns:D="DAV:"/></D:resourcetype></D:prop></D:propstat></D:response>
+    <D:response><D:href>/dav/Koofr/dogear/books/x.txt</D:href><D:propstat><D:prop><D:resourcetype></D:resourcetype></D:prop></D:propstat></D:response>
+  </D:multistatus>`;
+  assert.deepEqual(parseListing(koofrXml), [{ name: "b1", isDir: true }, { name: "x.txt", isDir: false }]);
   assert.deepEqual(parseListing(""), []);
+
+  // a server (Koofr) that answers 404, not 409, for PUT under a missing folder
+  const koofrLike = await startMockDav({ missingParent: 404 });
+  try {
+    const kd = makeDav({ DAV_URL: koofrLike.url, DAV_USER: koofrLike.user, DAV_PASS: koofrLike.pass, DAV_ROOT: "r" });
+    await kd.putJson("a/b/c.json", { ok: 1 });
+    assert.deepEqual(await kd.getJson("a/b/c.json"), { ok: 1 });
+  } finally {
+    await koofrLike.close();
+  }
 
   // Sec-MS-GEC v2 golden value, produced by the edge-tts Python package's
   // generate_sec_ms_gec_v2(1762500000)

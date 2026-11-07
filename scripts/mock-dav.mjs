@@ -1,7 +1,9 @@
 // In-memory WebDAV server for tests: GET, PUT, MKCOL, DELETE, PROPFIND (Depth 1).
 import { createServer } from "node:http";
 
-export function startMockDav({ user = "u", pass = "p" } = {}) {
+// missingParent: the status a server answers for PUT/MKCOL under a missing folder
+// (409 per RFC 4918; Koofr answers 404).
+export function startMockDav({ user = "u", pass = "p", missingParent = 409 } = {}) {
   const files = new Map(); // "a/b.txt" -> { body: Buffer, type }
   const dirs = new Set([""]);
   const expected = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
@@ -26,13 +28,13 @@ export function startMockDav({ user = "u", pass = "p" } = {}) {
       return f ? send(200, { "content-type": f.type }, f.body) : send(404);
     }
     if (req.method === "PUT") {
-      if (!dirs.has(parentOf(p))) return send(409);
+      if (!dirs.has(parentOf(p))) return send(missingParent);
       files.set(p, { body, type: req.headers["content-type"] ?? "application/octet-stream" });
       return send(201);
     }
     if (req.method === "MKCOL") {
       if (dirs.has(p)) return send(405);
-      if (!dirs.has(parentOf(p))) return send(409);
+      if (!dirs.has(parentOf(p))) return send(missingParent);
       dirs.add(p);
       return send(201);
     }
