@@ -295,6 +295,7 @@ const ttsRate = () => {
 
 function trackAudio(a) {
   audios.add(a);
+  a.addEventListener("timeupdate", sleepCheck);
   a.defaultPlaybackRate = ttsRate();
   a.playbackRate = ttsRate();
   a.preservesPitch = true;
@@ -312,6 +313,44 @@ function cycleRate() {
     btn.textContent = `${next}×`;
     btn.title = t("player.rate", next);
   }
+}
+
+// Sleep timer: pauses the narration after N minutes. Not stored: it belongs to
+// this listening session and ends with it (✕ clears it).
+const SLEEP_MINUTES = [0, 15, 30, 60];
+let sleepMin = 0;
+let sleepTimer = 0;
+
+// A locked phone may freeze setTimeout while audio keeps playing, so the
+// deadline is also checked on the audio elements' timeupdate events, which
+// keep firing during playback.
+let sleepAt = 0;
+
+function sleepCheck() {
+  if (!sleepAt || Date.now() < sleepAt) return;
+  clearTimeout(sleepTimer);
+  sleepTimer = 0;
+  sleepAt = 0;
+  sleepMin = 0;
+  if (player.on && player.playing) playerPlayPause();
+  paintSleep();
+}
+
+function cycleSleep() {
+  sleepMin = SLEEP_MINUTES[(SLEEP_MINUTES.indexOf(sleepMin) + 1) % SLEEP_MINUTES.length];
+  clearTimeout(sleepTimer);
+  sleepTimer = 0;
+  sleepAt = sleepMin ? Date.now() + sleepMin * 60_000 : 0;
+  if (sleepMin) sleepTimer = setTimeout(sleepCheck, sleepMin * 60_000 + 50);
+  paintSleep();
+}
+
+function paintSleep() {
+  const btn = $("#sleepBtn");
+  if (!btn) return;
+  btn.textContent = sleepMin ? `${sleepMin}′` : "☾";
+  btn.title = sleepMin ? t("player.sleepOn", sleepMin) : t("player.sleep");
+  btn.classList.toggle("active", !!sleepMin);
 }
 
 function makeAudio() {
@@ -516,6 +555,10 @@ export function closePlayer() {
   player.chunks = [];
   player.nextUrl = null;
   player.seekOff = null;
+  clearTimeout(sleepTimer);
+  sleepTimer = 0;
+  sleepAt = 0;
+  sleepMin = 0;
   startFloor = -1; // ✕ ends the session; the next 🔊 is a fresh reading
   for (const a of [player.audio, player.standby])
     if (a) { a.pause(); a.removeAttribute("src"); }
@@ -1196,10 +1239,12 @@ function buildPlayerBar() {
       el("button", { class: "iconbtn", id: "backBtn", title: t("player.back"), onclick: () => skipParagraph(-1) }, "⏮"),
       el("button", { class: "iconbtn", id: "fwdBtn", title: t("player.forward"), onclick: () => skipParagraph(1) }, "⏭"),
       el("button", { class: "iconbtn ratebtn", id: "rateBtn", title: t("player.rate", ttsRate()), onclick: cycleRate }, `${ttsRate()}×`),
+      el("button", { class: "iconbtn ratebtn", id: "sleepBtn", onclick: cycleSleep }, "☾"),
       el("button", { class: "iconbtn engbtn", id: "engBtn", onclick: toggleTtsPref }, ""),
       el("div", { class: "player-status", id: "playerStatus" }, ""),
       el("button", { class: "iconbtn", title: t("player.stop"), onclick: closePlayer }, "✕")),
   );
+  paintSleep();
   updatePlayerBar();
 }
 
