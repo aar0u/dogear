@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { decodeEntities, parseEpub } from "../public/epub-core.mjs";
+import { decodeText, parseBook } from "../public/import-core.mjs";
 
 const page = (body) => `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head><body>\n${body}\n</body></html>`;
 const epub = zipSync({
@@ -43,5 +44,14 @@ assert.equal(c2.title, "第二章　继续", "fragment in the NCX src still maps
 assert.equal(c2.body, "第二章　继续\n没有标题的章节正文。");
 
 assert.equal(decodeEntities("&#x4e2d;&#25991;&nbsp;&unknown;"), "中文 &unknown;");
+
+// the browser uploader's entry point: EPUB and TXT (UTF-8 and GBK) through parseBook
+const viaEpub = parseBook({ name: "测试.epub", bytes: epub, unzipSync });
+assert.deepEqual([viaEpub.title, viaEpub.author, viaEpub.pieces.length], ["测试&书", "某人", 2]);
+const txt = "第一章 开始\n正文一\n第二章 继续\n正文二\n第三章 结束\n正文三\n";
+const viaTxt = parseBook({ name: "我的书.txt", bytes: strToU8(txt), unzipSync });
+assert.deepEqual([viaTxt.title, viaTxt.pieces.length, viaTxt.headingCount], ["我的书", 3, 3]);
+assert.equal(decodeText(new Uint8Array([0xb5, 0xda, 0xd5, 0xc2])), "第章", "GBK bytes");
+assert.equal(parseBook({ name: "x.txt", bytes: strToU8("没有章节标题的文字\n"), unzipSync }).headingCount, 0);
 assert.throws(() => parseEpub({}), /not an EPUB/);
 console.log("test-epub ok");

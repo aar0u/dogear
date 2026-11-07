@@ -16,21 +16,29 @@ const HREF_RE = new RegExp(`<${tag("href")}>([^<]+)</${tag("href")}>`, "i");
 // attributes allowed: Koofr writes <D:collection xmlns:D="DAV:"/>
 const COLLECTION_RE = new RegExp(`<${tag("collection")}(?:\\s[^>]*)?/?>`, "i");
 
-// PROPFIND multistatus -> [{ name, isDir }], without the listed folder itself.
+const MODIFIED_RE = new RegExp(`<${tag("getlastmodified")}>([^<]+)</${tag("getlastmodified")}>`, "i");
+
+// PROPFIND multistatus -> [{ name, isDir, modified? }] (modified in ms), without
+// the listed folder itself.
 export function parseListing(xml) {
   const out = [];
   const items = xml.match(RESPONSE_RE) ?? [];
   for (const item of items) {
     const href = item.match(HREF_RE)?.[1];
     if (!href) continue;
-    out.push({ href: decodeURIComponent(href.trim()), isDir: COLLECTION_RE.test(item) });
+    const modified = Date.parse(item.match(MODIFIED_RE)?.[1] ?? "");
+    out.push({
+      href: decodeURIComponent(href.trim()),
+      isDir: COLLECTION_RE.test(item),
+      ...(Number.isFinite(modified) ? { modified } : {}),
+    });
   }
   if (!out.length) return [];
   // the first response of a Depth:1 PROPFIND is the folder itself
   const self = out[0].href.replace(/\/+$/, "");
   return out
     .filter((e, i) => i > 0 && e.href.replace(/\/+$/, "") !== self)
-    .map((e) => ({ name: e.href.replace(/\/+$/, "").split("/").pop(), isDir: e.isDir }));
+    .map(({ href, ...rest }) => ({ name: href.replace(/\/+$/, "").split("/").pop(), ...rest }));
 }
 
 export function makeDav(env) {

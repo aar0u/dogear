@@ -14,20 +14,12 @@ import { fileURLToPath } from "node:url";
 import { unzipSync } from "fflate";
 import { makeDav } from "../src/dav.js";
 import { parseEpub } from "../public/epub-core.mjs";
+import { decodeText } from "../public/import-core.mjs";
 import {
   buildManifest, newBookId, piecesToEntries, shortSlug, splitTextIntoPieces,
 } from "../public/split-core.mjs";
 
-// Detect the encoding the way the shelf expects: BOMs first, then strict UTF-8, then GB18030.
-export function decodeText(buf) {
-  if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder("utf-16le").decode(buf);
-  if (buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder("utf-16be").decode(buf);
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^﻿/, "");
-  } catch {
-    return new TextDecoder("gb18030").decode(buf);
-  }
-}
+export { decodeText };
 
 export function loadDevVars() {
   const file = join(fileURLToPath(new URL("..", import.meta.url)), ".dev.vars");

@@ -82,6 +82,33 @@ try {
   assert.equal((await (await call(`/api/bookmarks?book=${id}`)).json()).marks.length, 1);
   assert.equal((await post("/api/bookmarks", { book: id, marks: [{ id: "" }], updatedAt: 1 })).status, 400);
 
+  // upload from the browser: chapters first, the manifest last, bad input refused
+  const upId = "bupload01";
+  const put = (path, body) => call(path, { method: "PUT", body });
+  assert.equal((await put(`/api/upload/${upId}/${encodeURIComponent("0000_第一章.txt")}`, "第一章\n正文\n")).status, 200);
+  assert.equal((await put(`/api/upload/${upId}/manifest.json`, JSON.stringify({ id: "other", chapters: [{}] }))).status, 400, "manifest id must match");
+  assert.equal((await put(`/api/upload/${upId}/..%2Fx.txt`, "x")).status, 400);
+  assert.equal((await put(`/api/upload/${upId}/evil.exe`, "x")).status, 400);
+  assert.equal((await put(`/api/upload/${upId}/big.txt`, "a".repeat(2 * 1024 * 1024 + 1))).status, 413);
+  assert.equal((await call(`/api/upload/${upId}/x.txt`, { method: "PUT", body: "x" }, "wrong")).status, 401);
+  assert.equal((await (await call("/api/books")).json()).books.some((b) => b.id === upId), false, "unfinished: not on the shelf");
+  const upManifest = { id: upId, slug: "up", title: "上传书", totalChars: 6,
+    chapters: [{ title: "第一章", file: "0000_第一章.txt", chars: 6, bytes: 18 }] };
+  assert.equal((await put(`/api/upload/${upId}/manifest.json`, JSON.stringify(upManifest))).status, 200);
+  assert.equal((await (await call("/api/books")).json()).books.some((b) => b.id === upId), true, "finished: on the shelf at once");
+  assert.equal((await call(`/api/upload/${upId}`, { method: "DELETE" })).status, 409, "a published book is never deleted here");
+
+  // interrupted uploads: an old unfinished folder is cleared, a recent one and published books stay
+  await put("/api/upload/bstale001/0000_a.txt", "a");
+  await put("/api/upload/bfresh001/0000_a.txt", "a");
+  dav.mtimes.set("novel/books/bstale001", 0);
+  const cleaned = await (await call("/api/upload-cleanup", { method: "POST" })).json();
+  assert.deepEqual(cleaned.removed, ["bstale001"]);
+  assert.ok(!dav.dirs.has("novel/books/bstale001") && ![...dav.files.keys()].some((k) => k.startsWith("novel/books/bstale001/")));
+  assert.ok(dav.dirs.has("novel/books/bfresh001") && dav.dirs.has(`novel/books/${upId}`));
+  assert.equal((await call("/api/upload/bfresh001", { method: "DELETE" })).status, 200, "own failed upload can be dropped");
+  assert.ok(!dav.dirs.has("novel/books/bfresh001"));
+
   // PROPFIND parsing: other prefixes/casing, the folder itself excluded, %-escapes decoded
   const xml = `<?xml version="1.0"?><D:multistatus xmlns:D="DAV:">
     <D:response><D:href>/dav/books/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat></D:response>
@@ -97,6 +124,9 @@ try {
   </D:multistatus>`;
   assert.deepEqual(parseListing(koofrXml), [{ name: "b1", isDir: true }, { name: "x.txt", isDir: false }]);
   assert.deepEqual(parseListing(""), []);
+  const modXml = `<D:multistatus xmlns:D="DAV:"><D:response><D:href>/d/</D:href></D:response>
+    <D:response><D:href>/d/b1</D:href><D:propstat><D:prop><D:getlastmodified>Sat, 07 Nov 2026 07:11:01 GMT</D:getlastmodified><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat></D:response></D:multistatus>`;
+  assert.deepEqual(parseListing(modXml), [{ name: "b1", isDir: true, modified: Date.UTC(2026, 10, 7, 7, 11, 1) }]);
 
   // a server (Koofr) that answers 404, not 409, for PUT under a missing folder
   const koofrLike = await startMockDav({ missingParent: 404 });

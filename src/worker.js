@@ -85,7 +85,8 @@ export default {
       const gated =
         path === "/api/books" || path.startsWith("/api/books/") ||
         path === "/api/position" || path === "/api/settings" || path === "/api/bookmarks" ||
-        path.startsWith("/api/tts/") || path.startsWith("/books/");
+        path.startsWith("/api/tts/") || path.startsWith("/books/") ||
+        path.startsWith("/api/upload/") || path === "/api/upload-cleanup";
       const who = gated || path === "/api/auth" ? await authenticate(request, env, url) : null;
       if (gated && !who) return json({ error: "unauthorized" }, 401);
 
@@ -96,6 +97,8 @@ export default {
       if (path === "/api/position") return await handlePosition(request, env, url);
       if (path === "/api/settings") return await handleSettings(request, env);
       if (path === "/api/bookmarks") return await handleBookmarks(request, env, url);
+      if (path.startsWith("/api/upload/")) return await handleUpload(request, env, path);
+      if (path === "/api/upload-cleanup") return await cleanupIncomplete(request, env);
       if (path.startsWith("/api/wasmtts/")) return await serveWasmttsAsset(path, env);
       if (path.startsWith("/api/tts/")) return await handleTts(request, env, path);
       // the client's diagnostic beacons and push registration have no backend here
@@ -211,6 +214,70 @@ async function serveBook(request, env, path) {
         : "public, max-age=2592000, immutable",
     },
   });
+}
+
+// ---------- uploading a book from the browser ----------
+//
+// The browser parses the file and splits it into chapters (a Worker has no
+// time for that), then PUTs one chapter per request and the manifest LAST. A
+// folder without manifest.json is an unfinished upload: the shelf ignores it,
+// and the next upload clears it away.
+
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // a chapter is capped at 150k chars (~450 KB); a manifest is ~100 KB
+const INCOMPLETE_GRACE_MS = 10 * 60 * 1000; // a younger folder may be an upload that is still running
+
+async function handleUpload(request, env, path) {
+  const [id, file, ...rest] = decodeURIComponent(path.slice("/api/upload/".length)).split("/");
+  if (rest.length || !ID_RE.test(id ?? "")) return json({ error: "bad key" }, 400);
+  const dav = makeDav(env);
+
+  if (request.method === "DELETE") {
+    if (file) return json({ error: "bad key" }, 400);
+    // only ever an unfinished upload: a published book (it has a manifest) is never deleted here
+    const manifest = await dav.get(`books/${id}/manifest.json`);
+    await manifest.arrayBuffer();
+    if (manifest.ok) return json({ error: "book is published" }, 409);
+    await dav.remove(`books/${id}`);
+    return json({ ok: true });
+  }
+
+  if (request.method !== "PUT") return json({ error: "method not allowed" }, 405);
+  const isManifest = file === "manifest.json";
+  if (!file || file.includes("..") || !FILE_RE.test(file) || !(isManifest || file.endsWith(".txt")))
+    return json({ error: "bad key" }, 400);
+  const body = await request.arrayBuffer();
+  if (body.byteLength > MAX_UPLOAD_BYTES) return json({ error: "too large" }, 413);
+
+  if (isManifest) {
+    let m;
+    try {
+      m = JSON.parse(new TextDecoder().decode(body));
+    } catch {
+      return json({ error: "invalid json" }, 400);
+    }
+    if (m?.id !== id || !Array.isArray(m.chapters) || !m.chapters.length)
+      return json({ error: "invalid manifest" }, 400);
+  }
+  await dav.put(`books/${id}/${file}`, body, isManifest ? "application/json" : "text/plain; charset=utf-8");
+  if (isManifest) libraryCache = { at: 0, books: null }; // the new book shows up on the next shelf load
+  return json({ ok: true });
+}
+
+// POST: remove every unfinished upload (a folder with no manifest) that is
+// older than the grace period.
+async function cleanupIncomplete(request, env) {
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+  const dav = makeDav(env);
+  const removed = [];
+  for (const d of (await dav.list("books")).filter((e) => e.isDir && ID_RE.test(e.name))) {
+    if (Date.now() - (d.modified ?? 0) < INCOMPLETE_GRACE_MS) continue;
+    const manifest = await dav.get(`books/${d.name}/manifest.json`);
+    await manifest.arrayBuffer();
+    if (manifest.status !== 404) continue;
+    await dav.remove(`books/${d.name}`);
+    removed.push(d.name);
+  }
+  return json({ removed });
 }
 
 // ---------- positions, settings, bookmarks ----------
@@ -367,8 +434,16 @@ async function serveWasmttsAsset(path, env) {
   const name = path.slice("/api/wasmtts/".length);
   if (!WASMTTS_FILES.has(name) && !ORT_WASM_RE.test(name)) return json({ error: "not found" }, 404);
   if (!env.WASMTTS_RELEASE) return json({ error: "voice pack not configured" }, 404);
-  const res = await fetch(env.WASMTTS_RELEASE + name, { redirect: "follow" });
-  if (!res.ok) return json({ error: `upstream ${res.status}` }, 502);
+  // cf: let Cloudflare's edge keep the pack (up to 512 MB a file), so after
+  // the first download the 76 MB model does not come from GitHub each time
+  const res = await fetch(env.WASMTTS_RELEASE + name, {
+    redirect: "follow",
+    cf: { cacheEverything: true, cacheTtl: 31536000 },
+  });
+  if (!res.ok) {
+    console.error(`wasmtts ${name}: upstream ${res.status}`);
+    return json({ error: `upstream ${res.status}` }, 502);
+  }
   const headers = {
     "content-type": name.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
     "cache-control": "public, max-age=31536000, immutable",
