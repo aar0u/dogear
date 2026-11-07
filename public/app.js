@@ -1477,7 +1477,8 @@ function wireReaderEvents() {
   // and only a cancelled touchstart stops the engine's pan (the handler is
   // a few comparisons, so the scroll it holds up does not notice)
   addEventListener("touchstart", onTouchStart, { passive: false });
-  addEventListener("touchend", onTouchEnd, { passive: true });
+  // not passive: onTouchEnd cancels the touchend of a tap on the text
+  addEventListener("touchend", onTouchEnd, { passive: false });
   // deliberate scrolling pauses the player's auto-follow for a few seconds
   addEventListener("wheel", () => (lastUserScroll = Date.now()), { passive: true });
   addEventListener("touchmove", () => (lastUserScroll = Date.now()), { passive: true });
@@ -2486,6 +2487,12 @@ function onTouchEnd(e) {
   const end = e.changedTouches[0];
   if (Math.hypot(end.clientX - s.x, end.clientY - s.y) > 12 || Date.now() - s.t > 350) return;
   lastTouchTap = Date.now();
+  // A quick tap on the text is ours alone. Cancelling its touchend stops the
+  // browser from also treating it as a tap on a word, which on Android Chrome
+  // pops up "Touch to search" for the word under the finger (and on some
+  // browsers selects it). A long press is not a tap (it is over 350 ms), so
+  // selecting text still works; taps on controls keep their click.
+  if (e.cancelable && e.target instanceof Element && !e.target.closest(TOUCH_CONTROLS)) e.preventDefault();
   handleTap(end.clientX, end.clientY, e.target, true);
 }
 
