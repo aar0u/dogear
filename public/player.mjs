@@ -99,11 +99,11 @@ export const player = {
   seekOff: null,   // chain engine: land the first chunk at this char offset
 };
 
-// A reading that starts mid-chunk opens on the sentence HOLDING the
-// requested char, so narration begins a few seconds before it. Until the
-// spoken offset crosses the request, that pre-roll must not turn the page
-// back or drag the bookmark backward; one-shot, cleared on arrival and on
-// any explicit ⏮/⏭.
+// A reading opens on the sentence HOLDING the requested char (sentenceAlign
+// moves the request to that sentence's first char, for every engine). Until
+// the voice reaches that offset, positions before it — a chunk that starts a
+// little earlier — must not turn the page back or drag the bookmark backward;
+// one-shot, cleared on arrival and on any explicit ⏮/⏭.
 let startFloor = -1;
 
 function ttsUrl(file, idx) {
@@ -134,6 +134,18 @@ let packNoticed = false; // the voice-pack pill, at most once per session
 const PACK_SEEN_KEY = "bw_pack_offer_seen";
 function noticePack(force = false) {
   if ((packNoticed && !force) || useWasm()) return;
+  // Cache Storage exists only on https or localhost. Elsewhere (a plain
+  // http://192.168.x.x address) the pack downloads fine and is thrown away, so
+  // the offer would come back every time — say why instead of offering it.
+  if (!("caches" in window)) {
+    packNoticed = true;
+    const note = el("div", { class: "jumpnote" },
+      el("span", { class: "jumpnote-text" }, t("player.packInsecure")),
+      el("button", { class: "iconbtn", title: t("ui.close"), onclick: () => note.remove() }, "✕"));
+    document.body.append(note);
+    setTimeout(() => note.remove(), 12_000);
+    return;
+  }
   (async () => {
     const stale = await wasmTts.packStale();
     const missing = await wasmTts.packMissingBytes();
@@ -351,6 +363,7 @@ function playFrom(ci, off) {
   if (text !== undefined) {
     player.chapIdx = ci;
     player.chunks = ttsCore.chunkChapter(text);
+    off = sentenceAlign(player.chunks, off);
     startFloor = off;
     player.seekOff = off; // land inside the chunk, not at its start
     playChunk(ttsCore.chunkIndexFor(player.chunks, off));
@@ -574,6 +587,7 @@ function streamPlayFrom(ci, off) {
   stream.chunksBy.set(ci, chunks);
   player.chapIdx = ci;
   player.chunks = chunks;
+  off = sentenceAlign(chunks, off);
   const k = ttsCore.chunkIndexFor(chunks, off);
   startFloor = off;
   wlog(`start ci${ci} k${k} off${off} 線上串流`);
@@ -767,12 +781,7 @@ function onStreamTime() {
     openChapter(seg.ci, off).then(() => flush());
     return;
   }
-  if (off === state.off) return;
-  state.off = off;
-  updateProgress();
-  savePos("player");
-  markSpoken(off);
-  if (Date.now() - lastUserScroll() > 5000) followScroll(off);
+  reportOffset(off);
 }
 
 // ⏮/⏭: seek within the buffered timeline when the target chunk is still
@@ -983,6 +992,7 @@ function wasmPlayFrom(ci, off) {
   const chunks = ttsCore.chunkChapter(text);
   player.chapIdx = ci;
   player.chunks = chunks;
+  off = sentenceAlign(chunks, off);
   player.chunkIdx = ttsCore.chunkIndexFor(chunks, off);
   startFloor = off;
   player.status = "loading"; // first audio lands when unit 1 is synthesized
@@ -1123,12 +1133,7 @@ function wasmPosition(ci, off) {
     openChapter(ci, off).then(() => flush());
     return;
   }
-  if (off === state.off) return;
-  state.off = off;
-  updateProgress();
-  savePos("player");
-  markSpoken(off);
-  if (Date.now() - lastUserScroll() > 5000) followScroll(off);
+  reportOffset(off);
 }
 
 // resume/retry — ▶ in error state and the chain engine's visible retry
@@ -1220,6 +1225,38 @@ function updatePlayerBar() {
   }
 }
 
+// Where all three engines (chain, stream, offline) end up: the voice is at
+// `off` in the chapter on screen. One place for what the reader does about it —
+// move the bookmark, mark the sentence, turn the page — so the engines can
+// only differ in HOW they find `off`, not in what they do with it.
+function reportOffset(off) {
+  if (off === state.off) {
+    // the position did not move, but a (re)started session has no wash yet
+    if (!$("#ttsHl")) markSpoken(off);
+    return;
+  }
+  state.off = off;
+  updateProgress();
+  savePos("player");
+  markSpoken(off);
+  // follow the narration unless the user scrolled away recently
+  if (Date.now() - lastUserScroll() > 5000) followScroll(off);
+}
+
+// A reading always starts on the first character of a sentence — the one
+// holding the requested char — whichever engine plays it. The offline engine can
+// only start on a sentence (its units are sentences); the online ones used to
+// seek to the exact character, which began mid-word. The sentence is marked
+// and the bookmark moves from its first character on.
+function sentenceAlign(chunks, off) {
+  const c = chunks[ttsCore.chunkIndexFor(chunks, off)];
+  if (!c) return off;
+  const i = Math.max(0, Math.min(off - c.start, c.chars - 1));
+  let a = ttsCore.sentenceStartFor(c.text, i);
+  while (a < c.chars - 1 && !c.text[a].trim()) a++; // the paragraph indent is not ink
+  return c.start + a;
+}
+
 // Paint the sentence containing the char the voice is on. Bounds come from
 // the chunk's own text via the shared ENDERS/CLOSERS walk, so the mark and
 // the audio can never disagree about where a sentence is. A force-split
@@ -1256,13 +1293,7 @@ function onAudioTime() {
     if (off < startFloor) return;
     startFloor = -1;
   }
-  if (off === state.off) return;
-  state.off = off;
-  updateProgress();
-  savePos("player");
-  markSpoken(off);
-  // follow the narration unless the user scrolled away recently
-  if (Date.now() - lastUserScroll() > 5000) followScroll(off);
+  reportOffset(off);
 }
 
 function setMediaSession() {
