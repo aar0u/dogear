@@ -608,6 +608,7 @@ button {
   gap: 0.8rem;
   padding: 0.5rem 0;
 }
+.set-reset { margin-top: 0.4rem; font-size: 0.85rem; }
 .set-row select {
   font: inherit;
   min-width: 7.5rem;
@@ -620,14 +621,16 @@ button {
 
 /* ---------- touch ---------- */
 
-/* A tap that turns the page must not also select the word under the finger. */
-@media (pointer: coarse) {
-  #content {
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-    -webkit-tap-highlight-color: transparent;
-  }
+/* The book text stays selectable (long-press to copy or look a word up); a tap
+   that turns the page must not select anything, which handleTap enforces. */
+#content { -webkit-tap-highlight-color: transparent; }
+
+/* The controls are never text: a tap on the title in the top bar, or on the
+   progress line in the bottom one, must not select it. */
+.topbar, .botnav, .playerbar, .toc, #settingsPanel, .jumpnote, #syncchip, #tapzones {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* The tap-zone hint (showTapZones). Same 3×3 geometry as tapZone() in app.js:

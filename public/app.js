@@ -145,6 +145,26 @@ function reanchor() {
   if ($("#content p[data-off]")) restoreScroll(state.off);
 }
 
+// Everything this panel sets, back to the defaults — including what is kept
+// only on this device (the engine, the speed, keep-awake). The synced ones go
+// through their setters, so the server copy is overwritten too instead of
+// bringing the old values back at the next open. Progress, bookmarks and
+// downloaded data are not touched.
+function resetSettings() {
+  settings.theme = DEFAULTS.theme;
+  settings.bg = DEFAULTS.bg;
+  settings.lines = DEFAULTS.lines;
+  settings.leading = DEFAULTS.leading;
+  settings.vertical = DEFAULTS.vertical;
+  for (const key of ["dogear_tts", "dogear_tts_rate", "dogear_wake", "dogear_calibw"]) {
+    try { localStorage.removeItem(key); } catch { /* private mode */ }
+  }
+  reanchor();
+  applyWakeLock(); // the keep-awake preference just went back to off
+  $("#settingsPanel")?.remove();
+  toggleSettings(); // reopen, showing the defaults
+}
+
 // ---------- the reading-settings panel ----------
 //
 // Theme, paper colour, text size and line spacing are lists you pick from, not
@@ -188,7 +208,8 @@ function toggleSettings() {
     row("set.size", select(sizeOptions(), settings.lines, (v) => { settings.lines = Number(v); reanchor(); })),
     row("set.leading", select(
       LEADINGS.map((l) => [l, String(+l.toFixed(2))]),
-      leading, (v) => { settings.leading = Number(v); reanchor(); })));
+      leading, (v) => { settings.leading = Number(v); reanchor(); })),
+    el("button", { class: "linklike set-reset", onclick: resetSettings }, t("set.reset")));
   document.body.append(panel);
   // a press anywhere outside closes it
   const close = (e) => {
@@ -2751,7 +2772,7 @@ function onTouchEnd(e) {
   const end = e.changedTouches[0];
   if (Math.hypot(end.clientX - s.x, end.clientY - s.y) > 12 || Date.now() - s.t > 350) return;
   lastTouchTap = Date.now();
-  handleTap(end.clientX, end.clientY, e.target);
+  handleTap(end.clientX, end.clientY, e.target, true);
 }
 
 function onTap(e) {
@@ -2771,9 +2792,24 @@ function tapZone(x, y) {
   return "next";
 }
 
-function handleTap(cx, cy, target) {
+// A tap must never leave text selected. Two defences, for what a phone browser
+// does with a quick tap (a double tap selects a word on some of them): a tap that
+// finds a selection only clears it — like tapping away from a selection anywhere
+// else — and a selection that appears right after a tap is cleared too. A
+// deliberate selection (long-press) is not a tap, so neither rule touches it.
+let lastTapAt = 0;
+document.addEventListener("selectionchange", () => {
+  if (Date.now() - lastTapAt < 700 && getSelection()?.toString()) getSelection().removeAllRanges();
+});
+
+function handleTap(cx, cy, target, touch = false) {
   if (!(target instanceof Element) || target.closest("a, button, label, .topbar, .botnav, .playerbar, .toc, #settingsPanel")) return;
-  if (getSelection()?.toString()) return; // finishing a text selection, not a tap
+  if (touch) lastTapAt = Date.now();
+  if (getSelection()?.toString()) {
+    // mouse: the click that ends a drag-selection; touch: a tap away from one
+    if (touch) getSelection().removeAllRanges();
+    return;
+  }
   const zone = tapZone(cx / innerWidth, cy / innerHeight);
   if (zone === "menu") document.documentElement.toggleAttribute("data-bars");
   else pageScroll(zone === "next" ? 1 : -1);
