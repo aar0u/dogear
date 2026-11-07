@@ -509,15 +509,15 @@ button {
 .toc {
   position: fixed;
   top: 0;
-  left: 0;
+  right: 0;
   bottom: 0;
   width: min(20rem, 85vw);
   z-index: 20;
   background: var(--card);
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15);
 }
 
 .toc[hidden] { display: none; }
@@ -573,6 +573,18 @@ button {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+/* Keyboard focus: one thin ring in the accent colour, instead of the browser's
+   thick black one (which also showed after a mouse click on a list). Kept for
+   keyboard use, where it is the only sign of where you are. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.set-row select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* ---------- reading settings (toggleSettings) ---------- */

@@ -155,6 +155,35 @@ export function chunkIndexFor(chunks, off) {
 // frontend skips whitespace before tokenizing — a bare space was a pause
 // only the online voices happened to honor. A comma is the one break mark
 // every engine reads, and reads alike. Only between Han: a zh-en boundary
+// Offsets of the first character of every paragraph (a non-blank line) — the
+// same numbers the reader puts on its p[data-off] elements.
+export function paragraphStarts(text) {
+  const starts = [];
+  let at = 0;
+  for (const line of text.split("\n")) {
+    const ink = line.search(/\S/);
+    if (ink >= 0) starts.push(at + ink);
+    at += line.length + 1;
+  }
+  return starts;
+}
+
+// If the voice has been in a paragraph for fewer than this many characters,
+// ⏮ goes to the paragraph before it instead of restarting this one.
+export const RESTART_CHARS = 20;
+
+// Where ⏮/⏭ (d = -1 / +1) should take the voice, as an offset in the chapter:
+// the start of the next paragraph, or the start of this one (the one before when
+// the voice has only just begun this one). null = off the end or the start of
+// the chapter, i.e. the neighbouring chapter.
+export function skipTarget(text, off, d) {
+  const starts = paragraphStarts(text);
+  if (d > 0) return starts.find((s) => s > off) ?? null;
+  const here = starts.findLast((s) => s <= off);
+  if (here !== undefined && off - here > RESTART_CHARS) return here;
+  return starts.findLast((s) => s < (here ?? off)) ?? null;
+}
+
 // keeps its space, which is a word break, not a pause.
 export function ttsPrompt(chunkText) {
   return chunkText.replace(/[\s　]+/g, " ").trim()

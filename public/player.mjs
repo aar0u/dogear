@@ -428,14 +428,37 @@ function retryOnVisible() {
   document.addEventListener("visibilitychange", retry);
 }
 
+// The chain engine's own step to the next chunk when one finishes playing.
 function advanceChunk(d) {
-  startFloor = -1;      // an explicit skip owns the page from here
+  startFloor = -1;
   player.seekOff = null;
-  if (useWasm()) return wasmSkip(d);
-  if (useStream) return streamAdvanceChunk(d);
   const k = player.chunkIdx + d;
   if (k >= 0 && k < player.chunks.length) playChunk(k);
   else advanceChapter(d < 0 ? -1 : 1);
+}
+
+// ⏮/⏭, for every engine: by paragraph, the unit the page shows. ⏭ is the start
+// of the next paragraph; ⏮ is the start of this one, or of the one before when
+// the voice has only just begun this one. (They used to move by synthesis chunk —
+// about 280 characters of whole sentences, whose edges fall anywhere in a
+// paragraph — so a press could land mid-paragraph and ⏮ jumped back almost two.)
+function skipParagraph(d) {
+  startFloor = -1; // an explicit skip owns the page from here
+  player.seekOff = null;
+  const ci = player.chapIdx;
+  const text = state.cache.get(state.manifest.chapters[ci]?.file);
+  const off = text === undefined ? null : ttsCore.skipTarget(text, state.off, d);
+  if (off === null) {
+    // off the end or the start of the chapter: the neighbouring chapter, from its top
+    const to = ci + (d < 0 ? -1 : 1);
+    if (to < 0 || to >= state.manifest.chapters.length) return closePlayer();
+    if (useWasm()) return wasmPlayFrom(to, 0);
+    if (useStream) return streamPlayFrom(to, 0);
+    return advanceChapter(d < 0 ? -1 : 1);
+  }
+  if (useWasm()) return wasmSeekTo(ci, off);
+  if (useStream) return streamSeekTo(ci, off);
+  playFrom(ci, off);
 }
 
 function advanceChapter(d) {
@@ -784,23 +807,20 @@ function onStreamTime() {
   reportOffset(off);
 }
 
-// ⏮/⏭: seek within the buffered timeline when the target chunk is still
-// there, rebuild the stream at that chunk otherwise
-function streamAdvanceChunk(d) {
-  const k = player.chunkIdx + d;
-  if (k >= 0 && k < player.chunks.length) {
-    const seg = stream.segs.find((s) => s.ci === player.chapIdx && s.k === k);
-    if (seg && stream.el) {
-      stream.el.currentTime = seg.t0 + 0.01;
-      stream.el.play().catch(() => { /* already playing or blocked; bar shows state */ });
-      return;
-    }
-    player.chunks = stream.chunksBy.get(player.chapIdx) ?? player.chunks;
-    return streamStart(player.chapIdx, k);
+// ⏮/⏭ target `off`: seek inside the buffered timeline when that chunk's audio is
+// still there (proportionally within the chunk, as the position mapping does),
+// rebuild the stream at `off` otherwise
+function streamSeekTo(ci, off) {
+  const chunks = stream.chunksBy.get(ci) ?? player.chunks;
+  const k = ttsCore.chunkIndexFor(chunks, off);
+  const seg = stream.segs.find((s) => s.ci === ci && s.k === k);
+  if (seg && stream.el) {
+    stream.el.currentTime = seg.t0 + Math.min(1, Math.max(0, (off - seg.start) / seg.chars)) * (seg.t1 - seg.t0);
+    stream.el.play().catch(() => { /* already playing or blocked; bar shows state */ });
+    return;
   }
-  const ci = player.chapIdx + (d < 0 ? -1 : 1);
-  if (ci < 0 || ci >= state.manifest.chapters.length) return closePlayer();
-  streamPlayFrom(ci, 0);
+  player.chunks = chunks;
+  streamPlayFrom(ci, off);
 }
 
 // ---------- WASM engine (offline matcha — wasmtts's producer + player) ----------
@@ -1028,7 +1048,7 @@ function wasmPlayFrom(ci, off) {
     audio: stream.el,
     producer: p,
     // play/pause the player installs itself; ⏮/⏭ are this reader's (chunk grain)
-    mediaSession: { handlers: { previoustrack: () => advanceChunk(-1), nexttrack: () => advanceChunk(1) } },
+    mediaSession: { handlers: { previoustrack: () => skipParagraph(-1), nexttrack: () => skipParagraph(1) } },
     onUpdate: onWasmUpdate,
     onSegment: onWasmSegment,
     onStall: (e) => wlog(`看門狗 ${e.phase} @${Math.round(e.playhead ?? 0)}s`),
@@ -1147,15 +1167,7 @@ function wasmReplay() {
 // at that (chapter, sentence) when the audio is gone — asking the producer
 // to restore the chapter if `more` has moved it on; not on the timeline
 // (ahead of the synthesis, or a chapter never played) → start there.
-function wasmSkip(d) {
-  const k = player.chunkIdx + d;
-  let ci = player.chapIdx, target;
-  if (k >= 0 && k < player.chunks.length) target = player.chunks[k].start;
-  else {
-    ci += d < 0 ? -1 : 1;
-    if (ci < 0 || ci >= state.manifest.chapters.length) return closePlayer();
-    target = 0;
-  }
+function wasmSeekTo(ci, target) {
   const segs = wasm.player?.segments() ?? [];
   const seg = segs.find((s) => s.meta?.tag === ci && s.meta.start <= target && target < s.meta.end)
     ?? segs.find((s) => s.meta?.tag === ci && s.meta.start >= target);
@@ -1175,8 +1187,8 @@ function buildPlayerBar() {
     el("div", { id: "playerbar", class: "playerbar" },
       el("button", { class: "iconbtn", id: "ppBtn", title: t("player.playPause"), onclick: playerPlayPause }, "⏸"),
       // ids, not titles, are what the e2e suites click (titles follow the UI language)
-      el("button", { class: "iconbtn", id: "backBtn", title: t("player.back"), onclick: () => advanceChunk(-1) }, "⏮"),
-      el("button", { class: "iconbtn", id: "fwdBtn", title: t("player.forward"), onclick: () => advanceChunk(1) }, "⏭"),
+      el("button", { class: "iconbtn", id: "backBtn", title: t("player.back"), onclick: () => skipParagraph(-1) }, "⏮"),
+      el("button", { class: "iconbtn", id: "fwdBtn", title: t("player.forward"), onclick: () => skipParagraph(1) }, "⏭"),
       el("button", { class: "iconbtn ratebtn", id: "rateBtn", title: t("player.rate", ttsRate()), onclick: cycleRate }, `${ttsRate()}×`),
       el("button", { class: "iconbtn engbtn", id: "engBtn", onclick: toggleTtsPref }, ""),
       el("div", { class: "player-status", id: "playerStatus" }, ""),
@@ -1306,8 +1318,8 @@ function setMediaSession() {
   });
   ms.setActionHandler("play", playerPlayPause);
   ms.setActionHandler("pause", playerPlayPause);
-  ms.setActionHandler("previoustrack", () => advanceChunk(-1));
-  ms.setActionHandler("nexttrack", () => advanceChunk(1));
+  ms.setActionHandler("previoustrack", () => skipParagraph(-1));
+  ms.setActionHandler("nexttrack", () => skipParagraph(1));
 }
 
 // debug handle: e2e assertions and the remote-inspector device pass

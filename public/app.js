@@ -1772,15 +1772,17 @@ function buildReaderShell() {
       el("div", { class: "titles" },
         el("div", { class: "btitle" }, m.title),
         el("div", { class: "ctitle", id: "ctitle" }, "")),
-      el("button", { id: "tocBtn", class: "iconbtn", title: t("ui.contents"), onclick: toggleToc }, "☰"),
       el("button", { id: "audioBtn", class: "iconbtn", title: t("ui.listen"), onclick: toggleAudio }, "🔊"),
       el("button", { id: "offlineBtn", class: "iconbtn" + (offlineExplicit() ? " active" : ""), title: t("ui.offlineCache"), onclick: toggleOffline }, "⇣"),
-      // ids, not titles, are what the e2e suites click: the titles move with
-      // the interface language now
-      el("button", { id: "settingsBtn", class: "iconbtn", title: t("ui.settings"), onclick: toggleSettings }, "Aa"),
       "wakeLock" in navigator
         ? el("button", { id: "wakeBtn", class: "iconbtn" + (wakeOn() ? " active" : ""), title: t("ui.wake"), onclick: toggleWake }, "☀")
         : null,
+      // ids, not titles, are what the e2e suites click: the titles move with
+      // the interface language now
+      el("button", { id: "settingsBtn", class: "iconbtn", title: t("ui.settings"), onclick: toggleSettings }, "Aa"),
+      // the two lists of places in the book sit side by side, at the right edge,
+      // and their panels open on that edge too
+      el("button", { id: "tocBtn", class: "iconbtn", title: t("ui.contents"), onclick: toggleToc }, "☰"),
       el("button", { id: "marksBtn", class: "iconbtn", title: t("ui.marks"), onclick: toggleMarks }, "🔖")),
     // #pagebox is the page frame: in 直排 it owns the margins and clips at
     // the page edge, so a column can never be sliced (see applyGrid)
