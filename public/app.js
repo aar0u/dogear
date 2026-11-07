@@ -2736,14 +2736,33 @@ function showTapZones() {
 // chapter — forward to the next one's beginning, backward to the previous
 // one's END (so paging back reads naturally across the boundary).
 let lastPageTurn = 0;
-// Page turn distance: every whole line that is actually visible, less
-// PAGE_OVERLAP_LINES, so the last lines you read are still on screen as
-// context. The bars and the player pill are overlays that cover text while
-// they show, so their height is not counted as visible.
+// Where a page turn lands. The text sits on a line grid (every line is GRID.pitch
+// tall, from GRID.band down), and the bars and the player pill are overlays that
+// cover text while they show, so the window that counts is the CLEAR part
+// between them. Going forward, the new page starts on the last
+// PAGE_OVERLAP_LINES lines that were fully visible, with the first of them at
+// the very top of the clear part (not half under the top bar); going back, it
+// ends on the first PAGE_OVERLAP_LINES lines that were fully visible.
 const PAGE_OVERLAP_LINES = 2;
-function readStep() {
+function pageTarget(d) {
   const { top, bottom } = overlayInsets();
-  return Math.max(1, Math.floor((innerHeight - top - bottom) / GRID.pitch) - PAGE_OVERLAP_LINES) * GRID.pitch;
+  const p = GRID.pitch;
+  const n = Math.max(1, Math.floor((innerHeight - top - bottom) / p)); // lines that fit in the clear part
+  const lineAt = (y) => (y - GRID.band) / p; // fractional index of the line at document y
+  const first = Math.ceil(lineAt(scrollY + top) - 1e-6); // first line fully in the clear part
+  const last = Math.floor(lineAt(scrollY + innerHeight - bottom) + 1e-6) - 1; // last one
+  const keep = Math.min(PAGE_OVERLAP_LINES, Math.max(0, n - 1));
+  const start = d > 0
+    ? Math.max(first + 1, last - keep + 1) // always at least one line further
+    : Math.min(first - 1, first + keep - n);
+  return GRID.band + start * p - top;
+}
+
+// Is the last line of the chapter fully in the clear part of the window?
+function chapterEndVisible() {
+  const ps = $("#content")?.querySelectorAll("p[data-off]");
+  const lastLine = ps?.[ps.length - 1];
+  return !lastLine || lastLine.getBoundingClientRect().bottom <= innerHeight - overlayInsets().bottom + 2;
 }
 
 // How much of the viewport the overlays cover right now: the top bar from
@@ -2773,13 +2792,10 @@ function pageScroll(d) {
   if (now - lastPageTurn < 150) return;
   lastPageTurn = now;
   lastUserScroll = now; // pause the player's auto-follow, like a swipe
-  const end = scrollEnd();
-  if (d > 0 && scrollY >= end - 2) return nav(1);
+  if (d > 0 && chapterEndVisible()) return nav(1);
   if (d < 0 && scrollY <= 2) return nav(-1, "end");
-  // One page is exactly one page of travel from where the text is now, jumped
-  // to with no animation: the page keeps whatever line alignment the reader
-  // scrolled to, and nothing glides to collide with the next input.
-  scrollTo(0, Math.min(end, Math.max(0, scrollY + d * readStep())));
+  // Jumped to with no animation, so nothing glides to collide with the next input.
+  scrollTo(0, Math.min(scrollEnd(), Math.max(0, pageTarget(d))));
 }
 
 function toggleToc() {

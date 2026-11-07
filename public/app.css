@@ -175,7 +175,9 @@ button {
      comfortable limit for CJK. A phone is narrower than this and fills it. */
   max-width: 38em;
   margin: 0 auto;
-  padding: calc(1.2rem + env(safe-area-inset-top)) 1.2rem max(0.8rem, env(safe-area-inset-bottom));
+  /* the bottom leaves room for the bottom bar and the player pill, so the last
+     lines of a chapter can be scrolled clear of them */
+  padding: calc(1.2rem + env(safe-area-inset-top)) 1.2rem calc(5rem + env(safe-area-inset-bottom));
   /* the real size and line height are set inline by applyGrid */
   font-size: 24px;
   line-height: calc(4 / 3);
