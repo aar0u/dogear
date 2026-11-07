@@ -188,10 +188,11 @@ function toggleSettings() {
     row("set.leading", select(
       LEADINGS.map((l) => [l, String(+l.toFixed(2))]),
       leading, (v) => { settings.leading = Number(v); reanchor(); })),
-    el("button", { class: "linklike set-reset", onclick: resetSettings }, t("set.reset")),
-    // keyboard help is for a keyboard: not offered on a touch-only screen
-    matchMedia("(pointer: fine)").matches
-      ? el("button", { class: "linklike set-reset", onclick: toggleHelp }, ` ${t("set.keys")}`) : null);
+    el("div", { class: "set-links" },
+      el("button", { class: "linklike", onclick: resetSettings }, t("set.reset")),
+      // keyboard help is for a keyboard: not offered on a touch-only screen
+      matchMedia("(pointer: fine)").matches
+        ? el("button", { class: "linklike", onclick: toggleHelp }, t("set.keys")) : null));
   document.body.append(panel);
   // a press anywhere outside closes it
   const close = (e) => {
