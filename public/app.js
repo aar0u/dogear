@@ -360,7 +360,7 @@ const state = {
   syncTimer: 0,
 };
 
-let syncState = "ok"; // ok | pending | err
+let syncState = "ok"; // ok | pending | sending | err
 
 // ---------- boot / routing ----------
 
@@ -801,7 +801,11 @@ async function renderLibrary() {
     // often enough to sit permanently marked 離線. The cached list is
     // already painted — the longer leash only delays the (cosmetic) stale
     // mark, never the shelf.
-    const res = await fetch("/api/books", haveCached ? capped(2500) : undefined);
+    // 20 s: a cold shelf costs several WebDAV round trips (~6 s on Koofr), and
+    // a shorter cap marked a perfectly online device 離線. The cached shelf is
+    // already on screen, so waiting longer costs nothing; only a real failure
+    // or a very long hang shows the stale note.
+    const res = await fetch("/api/books", haveCached ? capped(20_000) : undefined);
     if (res.status === 401) {
       if (await reauth()) return renderLibrary();
       return renderKeyGate(renderLibrary, !!getKey());
@@ -834,7 +838,20 @@ async function renderLibrary() {
 // JS-filled strings without asking the network for the same list again.
 let shelfPaint = null;
 
+// The server's progress lags what this device just read by the sync delay (a
+// 10 s timer plus a slow WebDAV write), so for each book the newer of the two
+// wins. Another device's later reading still beats ours: its updatedAt is newer.
+function overlayLocalProgress(books) {
+  return books.map((b) => {
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(`bw_prog_${b.id}`)); } catch { /* ignore */ }
+    if (!local || !(local.at > (b.progress?.updatedAt ?? 0))) return b;
+    return { ...b, progress: { chapter: local.chapter, pct: local.pct, updatedAt: local.at } };
+  });
+}
+
 function paintShelf(books, opts) {
+  books = overlayLocalProgress(books);
   shelfPaint = [books, opts];
   showScreen("shelfScreen");
   $("#staleNote").hidden = !opts.stale;
@@ -1530,12 +1547,26 @@ function showRemoteNotice(remote) {
   document.body.append(note);
 }
 
+// Back to the shelf leaves the reader, so the position, settings and bookmarks
+// are pushed to the server NOW (the corner chip shows it) instead of waiting
+// for the 10 s timer or a beacon. Capped: an unreachable server must not trap
+// the reader — local progress is already saved and the shelf shows it.
+async function leaveToShelf(e) {
+  if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab/window: native
+  trackScroll(); // the 400 ms scroll throttle may not have caught the last move
+  if (!state.dirty && !settingsDirty && !readMarks(state.id).dirty) return; // nothing to push
+  e.preventDefault();
+  const cap = new Promise((resolve) => setTimeout(resolve, 6000));
+  await Promise.race([Promise.allSettled([flush(), flushSettings(), pushMarks(state.id)]), cap]);
+  location.href = "/?shelf";
+}
+
 function buildReaderShell() {
   const m = state.manifest;
   showScreen(null); // the reader lowers every screen and owns #readerRoot
   $("#readerRoot").replaceChildren(
     el("header", { class: "topbar" },
-      el("a", { class: "iconbtn brand", href: "/?shelf", title: t("ui.library") }),
+      el("a", { class: "iconbtn brand", href: "/?shelf", title: t("ui.library"), onclick: leaveToShelf }),
       el("div", { class: "titles" },
         el("div", { class: "btitle" }, m.title),
         el("div", { class: "ctitle", id: "ctitle" }, "")),
@@ -2144,7 +2175,10 @@ function trackScroll() {
   // in front of us, it is still the position. Without this the tracker
   // would coarsen every restore to the page's first paragraph, and each
   // reflow (A±, rotation) would ratchet the bookmark a page backward.
-  if (state.off && GRID.span) {
+  // 直排 only: scrolling is free in 橫排, so a tracked point that is still
+  // somewhere on a page-sized band would pin the position for up to a page
+  // of reading and the progress would lag behind the text.
+  if (settings.vertical && state.off && GRID.span) {
     let cur = null;
     for (const p of ps) {
       if (Number(p.dataset.off) <= state.off) cur = p;
@@ -2204,8 +2238,21 @@ function savePos(src = "?") {
   if (!state.syncTimer) state.syncTimer = setTimeout(() => flush(), 10_000);
 }
 
+let posInFlight = null;
 async function flush(useBeacon = false) {
   if (state.syncTimer) { clearTimeout(state.syncTimer); state.syncTimer = 0; }
+  if (useBeacon) return sendPosition(true); // pagehide: no time to wait for anyone
+  // One position write at a time. WebDAV (Koofr) locks a file while a PUT to
+  // it runs, so overlapping writes answer 423 and each waits for the slowest;
+  // a write that finds one in flight waits, then sends only if something
+  // newer is still unsent (sendPosition clears `dirty` before its first await).
+  while (posInFlight) await posInFlight;
+  if (!state.dirty || !state.lastSaved) return;
+  posInFlight = sendPosition(false).finally(() => { posInFlight = null; });
+  return posInFlight;
+}
+
+async function sendPosition(useBeacon) {
   if (!state.dirty || !state.lastSaved) return;
   const body = JSON.stringify({
     book: state.id,
@@ -2220,17 +2267,18 @@ async function flush(useBeacon = false) {
     plog(`flush beacon ${fmtPos(state.lastSaved)}`);
     return;
   }
+  setSyncDot("sending");
   try {
     const res = await fetch("/api/position", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
+      keepalive: true, // outlives the page if leaveToShelf's cap lets go first
     });
     // an evicted cookie: repair it for the retry the timer already owns
     if (res.status === 401) reauth();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    setSyncDot("ok");
-    syncFlash();
+    setSyncDot("ok"); // also replaces the corner blink for this case
     plog(`flush ok ${fmtPos(state.lastSaved)}`);
   } catch (err) {
     plog(`flush 錯 ${err?.message} ${fmtPos(state.lastSaved)}`);
@@ -2240,10 +2288,29 @@ async function flush(useBeacon = false) {
   }
 }
 
+// One indicator, two places, the same states and colours: the dot in the
+// footer bar, and a copy in the screen corner for when that bar is hidden
+// while reading. pending (amber) = changed, waiting to upload; sending (ring)
+// = the upload is out; ok (green) = the server has it, the corner copy fades
+// after a moment; err (red) = failed, stays until a retry succeeds. No words —
+// they live in title/aria-label.
+let syncChipTimer = 0;
 function setSyncDot(s) {
   syncState = s;
+  const label = t("sync." + s);
   const dot = $("#syncdot");
-  if (dot) dot.className = "syncdot " + s;
+  if (dot) {
+    dot.className = "syncdot " + s;
+    dot.title = label;
+  }
+  const chip = $("#syncchip")
+    ?? document.body.appendChild(el("div", { id: "syncchip", role: "status" }));
+  clearTimeout(syncChipTimer);
+  chip.className = "syncdot " + s;
+  chip.title = label;
+  chip.setAttribute("aria-label", label);
+  chip.hidden = false;
+  if (s === "ok") syncChipTimer = setTimeout(() => { chip.hidden = true; }, 1500);
 }
 
 // 同步成功的一閃 (user 08-28): the footer dot is inside a bar that is hidden
@@ -2359,8 +2426,13 @@ function updateProgress() {
   const before = state.idx > 0 ? state.cum[state.idx - 1] : 0;
   const total = state.manifest.totalChars || 1;
   const pct = Math.min(100, ((before + state.off) / total) * 100);
+  // the shelf reads this back, so it shows where you stopped without waiting
+  // for the server copy (see overlayLocalProgress)
+  try {
+    localStorage.setItem(`bw_prog_${state.id}`, JSON.stringify({ chapter: state.idx, pct, at: Date.now() }));
+  } catch { /* full or private mode */ }
   $("#progress")?.replaceChildren(
-    el("span", { id: "syncdot", class: "syncdot " + syncState, title: t("ui.syncStatus") }),
+    el("span", { id: "syncdot", class: "syncdot " + syncState, title: t("sync." + syncState) }),
     ` ${state.idx + 1}/${state.manifest.chapters.length} · ${pct.toFixed(1)}%`,
   );
 }

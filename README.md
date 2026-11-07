@@ -1,68 +1,57 @@
 # dogear
 
-A private novel reader on one Cloudflare Worker. Books, reading positions,
-settings and bookmarks are plain files on a WebDAV server. No D1, no R2.
+私人小说阅读器。一个 Cloudflare Worker 加一个 WebDAV 账号：书、阅读进度、书签和设置都是 WebDAV 上的普通文件，手机和电脑打开同一个网址就能接着读。
 
-The reader front end and the TXT chapter splitter come from
-[enstw/bookworm](https://github.com/enstw/bookworm) (MIT, see LICENSE). The
-storage layer, auth and the changes below are new.
+支持 TXT 和 EPUB、行距调整、多个书签、在线和离线朗读（TTS）。阅读器前端和 TXT 分章逻辑来自 [enstw/bookworm](https://github.com/enstw/bookworm)（MIT，见 LICENSE）。
 
-## What differs from bookworm
-
-- Storage is WebDAV (`src/dav.js`); the worker is `src/worker.js`.
-- One shared reader key (`READER_KEY`) instead of per-reader keys.
-- Horizontal layout by default; the vertical toggle button is gone.
-- Text is shown as stored (no Simplified-to-Traditional conversion).
-- Line spacing button (↕) and several named bookmarks per book (🔖), both synced.
-- Font: LXGW WenKai, served in unicode-range slices from `public/fonts/wenkai/`.
-- Removed: admin page, push notifications, online book sources, updater.
-
-## WebDAV layout
+## WebDAV 里的目录
 
 ```
 <DAV_ROOT>/books/<id>/manifest.json
-<DAV_ROOT>/books/<id>/0000_<title>.txt ...
-<DAV_ROOT>/state/pos/<id>.json        reading position
-<DAV_ROOT>/state/marks/<id>.json      bookmarks
-<DAV_ROOT>/state/settings.json
+<DAV_ROOT>/books/<id>/0000_<章名>.txt ...
+<DAV_ROOT>/state/pos/<id>.json        阅读位置
+<DAV_ROOT>/state/marks/<id>.json      书签
+<DAV_ROOT>/state/settings.json        设置
 ```
 
-## Local development
+## 本地开发
 
 ```
 pnpm install
-node scripts/dev-mock.mjs        # in-memory WebDAV + wrangler dev, key: dev-key
-node scripts/test-api.mjs        # worker tests against the in-memory WebDAV
+node scripts/dev-mock.mjs     # 内存 WebDAV + wrangler dev，访问密码 dev-key
+node scripts/test-api.mjs     # Worker 测试
+node scripts/test-epub.mjs    # EPUB 解析测试
 ```
 
-## Deploy
+用真实 WebDAV 开发：复制 `.dev.vars.example` 为 `.dev.vars` 并填写，`pnpm exec wrangler dev`。`node scripts/check-dav.mjs` 可以先检查 WebDAV 账号是否可用。
+
+## 部署
 
 ```
-cp .dev.vars.example .dev.vars   # fill in the WebDAV account
 pnpm run deploy
-wrangler secret put READER_KEY
-wrangler secret put DAV_URL
-wrangler secret put DAV_USER
-wrangler secret put DAV_PASS
-wrangler secret put DAV_ROOT
-node scripts/publish-book.mjs 书名.txt --title 书名 --author 作者
+pnpm exec wrangler secret bulk .dev.vars
 ```
 
-Open the site, enter `READER_KEY` once per device.
+线上的密钥不会随 `deploy` 上传，`.dev.vars` 只给本地用。`secret bulk` 一次把 `.dev.vars` 里的 `READER_KEY`、`DAV_URL`、`DAV_USER`、`DAV_PASS`、`DAV_ROOT` 同步到线上。**换环境、换账号或改了密码后要重新跑这一条**，很容易忘。线上的 `READER_KEY` 请用足够长的随机串（`openssl rand -base64 24`），Worker 没有登录次数限制，它就是唯一的门。
 
-## Known gaps
+首次在每台设备上打开网址时输入一次 `READER_KEY`。
 
-- Online TTS uses Microsoft's unofficial Edge read-aloud endpoint
-  (`src/edge-tts.js`, Sec-MS-GEC v2 token). Microsoft has changed the token
-  before, so expect it to break again; offline TTS is the fallback. The token
-  has a golden test in `scripts/test-api.mjs`, but that only proves it still
-  matches the Python package, not that the server still accepts it.
-- The offline voice pack is proxied from this repo's own `voice-pack` release
-  (`WASMTTS_RELEASE` in `wrangler.jsonc`; the owner/repo in that URL is
-  assumed to be `aar0u/dogear`). Run the `voice-pack` workflow once before
-  using offline TTS. It builds the pack with `scripts/build-pack.mjs`, which
-  fetches every file from its upstream source and checks size and SHA-256.
-  Without the release, `/api/wasmtts/*` returns 404.
-- UI strings are still Traditional Chinese (or English).
-- `workers.dev` has no Cache API, so nothing is cached server side; chapter
-  files are cached by the browser and the service worker.
+## 添加书
+
+```
+node scripts/publish-book.mjs 书名.txt --title 书名 --author 作者
+node scripts/publish-book.mjs 书名.epub
+node scripts/publish-book.mjs --from-dav 书名.epub    # 文件已在 DAV_ROOT 下
+```
+
+脚本把书拆成章节文件再上传，manifest 最后写，传到一半的书不会出现在书架上。免费 WebDAV 写入慢（Koofr 每个文件 2 到 4 秒），一本近千章的书要约 30 分钟。
+
+## 离线朗读语音包
+
+离线朗读用的语音包（约 139MB）由 `.github/workflows/voice-pack.yml` 构建并发布到本仓库的 `voice-pack` release，Worker 通过 `/api/wasmtts/*` 转发。使用前手动运行一次这个 workflow；没有这个 release 时离线朗读不可用，在线朗读不受影响。`wrangler.jsonc` 里 `WASMTTS_RELEASE` 的仓库名要和实际仓库一致。
+
+## 已知限制
+
+- 在线朗读用的是微软 Edge 的非官方接口（`src/edge-tts.js`），微软改过令牌算法，以后可能再失效。
+- 书架冷启动要几秒（需要多次访问 WebDAV）。
+- `workers.dev` 域名下没有 Cache API，服务端不缓存；章节靠浏览器和 service worker 缓存。

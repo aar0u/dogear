@@ -127,14 +127,25 @@ let packNoticed = false; // the voice-pack pill, at most once per session
 // guarantee — no silent ~145 MB — still holds. Narration keeps playing on
 // the online engine meanwhile; the offline one takes over at the next ▶
 // (closePlayer re-picks).
-function noticePack() {
-  if (packNoticed || useWasm()) return;
+//
+// dogear shows it once per device (not once per session, which nagged on every
+// visit) and takes it away by itself after a few seconds; `force` is the reader
+// asking for the offline voice by tapping the engine button, which always answers.
+const PACK_SEEN_KEY = "bw_pack_offer_seen";
+function noticePack(force = false) {
+  if ((packNoticed && !force) || useWasm()) return;
   (async () => {
     const stale = await wasmTts.packStale();
     const missing = await wasmTts.packMissingBytes();
     // a complete pack here means pickEngine has not caught up yet — not news
-    if (packNoticed || !missing) return;
+    if ((packNoticed && !force) || !missing) return;
+    const flavor = stale ? "stale" : "offer";
+    let seen = null;
+    try { seen = localStorage.getItem(PACK_SEEN_KEY); } catch { /* private mode */ }
+    if (!force && seen === flavor) return;
+    try { localStorage.setItem(PACK_SEEN_KEY, flavor); } catch { /* private mode */ }
     packNoticed = true;
+    if (force) $("#packGoBtn")?.closest(".jumpnote")?.remove();
     const goKey = stale ? "player.packGo" : "player.packGet";
     const label = el("span", { class: "jumpnote-text" },
       t(stale ? "player.packStale" : "player.packOffer"));
@@ -143,6 +154,7 @@ function noticePack() {
     const note = el("div", { class: "jumpnote" }, label, go,
       el("button", { class: "iconbtn", title: t("ui.close"), onclick: () => note.remove() }, "✕"));
     document.body.append(note);
+    setTimeout(() => { if (!go.disabled) note.remove(); }, 12_000); // not while a download runs
     async function download() {
       go.disabled = true;
       try {
@@ -175,6 +187,8 @@ export function togglePlayer() {
 // inside the same tap, so the element blessing below still counts as a
 // gesture. Ending the session first is what keeps the mid-stream rule.
 function toggleTtsPref() {
+  // without the pack there is nothing to switch to — the tap is how you get it
+  if (!packOk) { noticePack(true); return; }
   const next = ttsPref() === "online" ? "offline" : "online";
   try { localStorage.setItem("bw_tts", next); } catch { /* private mode: this session only */ }
   wlog(`預設引擎 → ${next}`);
@@ -1156,7 +1170,7 @@ function buildPlayerBar() {
       // ids, not titles, are what the e2e suites click (titles follow the UI language)
       el("button", { class: "iconbtn", id: "backBtn", title: t("player.back"), onclick: () => advanceChunk(-1) }, "⏮"),
       el("button", { class: "iconbtn", id: "fwdBtn", title: t("player.forward"), onclick: () => advanceChunk(1) }, "⏭"),
-      el("button", { class: "iconbtn", id: "rateBtn", title: t("player.rate", ttsRate()), onclick: cycleRate }, `${ttsRate()}×`),
+      el("button", { class: "iconbtn ratebtn", id: "rateBtn", title: t("player.rate", ttsRate()), onclick: cycleRate }, `${ttsRate()}×`),
       el("button", { class: "iconbtn engbtn", id: "engBtn", onclick: toggleTtsPref }, ""),
       el("div", { class: "player-status", id: "playerStatus" }, ""),
       el("button", { class: "iconbtn", title: t("player.stop"), onclick: closePlayer }, "✕")),
@@ -1187,7 +1201,14 @@ function updatePlayerBar() {
   // the engine button names the engine RUNNING; the title names the default.
   // They differ exactly when a fallback is in effect (.fallback, accent)
   const eb = $("#engBtn");
-  if (eb) {
+  if (eb && !packOk) {
+    // only the online voice exists, so there is no choice to show: the button
+    // offers the download instead (see toggleTtsPref)
+    eb.textContent = t("player.engGet");
+    eb.title = t("player.engGetTitle");
+    eb.dataset.engine = "online";
+    eb.classList.remove("fallback");
+  } else if (eb) {
     const active = useWasm() ? "offline" : "online";
     const name = (e) => t(e === "offline" ? "player.engOffline" : "player.engOnline");
     eb.textContent = name(active);

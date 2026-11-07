@@ -354,16 +354,40 @@ button {
   white-space: nowrap;
 }
 
+/* The sync light (see setSyncDot): the footer dot and the corner copy share
+   these states and colours. amber = waiting to upload, ring = uploading,
+   green = saved, red = failed. */
 .syncdot {
-  width: 8px;
-  height: 8px;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   display: inline-block;
   background: transparent;
 }
 .syncdot.ok { background: #7fa06a; }
 .syncdot.pending { background: #cfa03f; }
+.syncdot.sending {
+  border: 2px solid rgba(207, 160, 63, 0.3);
+  border-top-color: #cfa03f;
+  animation: syncspin 0.8s linear infinite;
+}
 .syncdot.err { background: #c0564f; }
+@keyframes syncspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .syncdot.sending { animation: none; border: 0; background: #cfa03f; }
+}
+
+/* the corner copy: bottom-left, clear of the centered player pill, never
+   intercepts a tap */
+#syncchip {
+  position: fixed;
+  left: max(0.9rem, env(safe-area-inset-left));
+  bottom: max(0.9rem, env(safe-area-inset-bottom));
+  z-index: 9;
+  pointer-events: none;
+}
+#syncchip[hidden] { display: none; }
 
 /* 同步成功的一閃 (user 08-28). The footer dot above lives in a bar that is
    hidden while reading, so "did the bookmark sync" had no answer on the page
@@ -422,6 +446,8 @@ button {
 /* the engine button is a word, not a glyph — status-text size; accent while
    the engine running is the fallback rather than the chosen default */
 .playerbar .engbtn { font-size: 0.85rem; padding: 0.55rem 0.5rem; }
+/* speed reads like the 語音 5/15 counter beside it: same size, same grey */
+.playerbar .ratebtn { font-size: 0.8rem; color: var(--muted); padding: 0.55rem 0.5rem; }
 .playerbar .engbtn.fallback { color: var(--accent); }
 
 /* with the botnav hidden the player can sit at the bottom edge */
