@@ -54,25 +54,23 @@ const BACKGROUNDS = [
 // factory defaults: light theme, 金褐 paper (sampled off the user's preferred
 // reader screenshot, #e0cb97) — a value the user ever set on this
 // device (even back to these) always wins; null means untouched
-const DEFAULTS = { theme: "light", bg: "gold-brown", lines: 11, leading: 4 / 3 };
+const DEFAULTS = { theme: "light", bg: "gold-brown", size: 22, leading: 4 / 3 };
 
 // line spacing = 行距 ÷ 字號, cycled by the ↕ button. 4/3 is the pre-existing
 // look (字級 = pitch × ¾), so the first step is the unchanged default.
 const LEADINGS = [1.2, 4 / 3, 1.5, 1.7, 1.9, 2.1];
 
 // bg and leading sync to the server (settingsChanged marks + schedules the
-// push); theme and lines deliberately stay per-device
+// push); theme and size deliberately stay per-device
 const settings = {
-  // Text size, expressed as how many lines fit on a phone-width page (see
-  // gridPitch). Per-device like theme: a phone and a tablet want the same
-  // physical text size, which is a DIFFERENT line count on each, so syncing it
-  // would make one of them wrong.
-  get lines() {
-    const v = Number(localStorage.getItem("dogear_lines"));
-    return v >= 4 && v <= 40 ? v : DEFAULTS.lines;
+  // Text size in CSS pixels. Per-device like theme: a phone and a desktop want
+  // different sizes for the same text, so syncing it would make one of them wrong.
+  get size() {
+    const v = Number(localStorage.getItem("dogear_size"));
+    return v >= 12 && v <= 60 ? v : DEFAULTS.size;
   },
-  set lines(v) {
-    localStorage.setItem("dogear_lines", String(Math.min(40, Math.max(4, Math.round(v)))));
+  set size(v) {
+    localStorage.setItem("dogear_size", String(Math.min(60, Math.max(12, Math.round(v)))));
     applySettings();
   },
   get leading() {
@@ -137,7 +135,7 @@ function reanchor() {
 function resetSettings() {
   settings.theme = DEFAULTS.theme;
   settings.bg = DEFAULTS.bg;
-  settings.lines = DEFAULTS.lines;
+  settings.size = DEFAULTS.size;
   settings.leading = DEFAULTS.leading;
   for (const key of ["dogear_tts", "dogear_tts_rate", "dogear_wake"]) {
     try { localStorage.removeItem(key); } catch { /* private mode */ }
@@ -163,19 +161,10 @@ function toggleFullscreen() {
 // want (light → dark → auto, where auto looks like light, took two presses to
 // get back to light), and a button cannot say what it is set to.
 
-// The sizes offered, as the pixel size each "lines per page" value gives on
-// THIS window (the same arithmetic as gridPitch); the stored value is always
-// among them.
+// The sizes offered, in pixels; the stored value is always among them.
 function sizeOptions() {
-  const basis = gridBasis();
-  const px = (n) => Math.round(Math.max(8, Math.floor(basis / n)) * 0.75);
-  const byPx = new Map();
-  for (let n = 40; n >= 4; n--) {
-    const p = px(n);
-    if (p >= 14 && p <= 48 && !byPx.has(p)) byPx.set(p, n);
-  }
-  byPx.set(px(settings.lines), settings.lines);
-  return [...byPx].sort((a, b) => a[0] - b[0]).map(([p, n]) => [n, String(p)]);
+  const sizes = new Set([14, 16, 18, 20, 22, 24, 26, 28, 32, 36, 40, 44, settings.size]);
+  return [...sizes].sort((a, b) => a - b).map((n) => [n, String(n)]);
 }
 
 function toggleSettings() {
@@ -195,7 +184,7 @@ function toggleSettings() {
     row("set.bg", select(
       BACKGROUNDS.map((b) => [b, t("bg." + (b || "default"))]),
       settings.bg, (v) => { settings.bg = v; })),
-    row("set.size", select(sizeOptions(), settings.lines, (v) => { settings.lines = Number(v); reanchor(); })),
+    row("set.size", select(sizeOptions(), settings.size, (v) => { settings.size = Number(v); reanchor(); })),
     row("set.leading", select(
       LEADINGS.map((l) => [l, String(+l.toFixed(2))]),
       leading, (v) => { settings.leading = Number(v); reanchor(); })),
@@ -212,10 +201,9 @@ function toggleSettings() {
 
 // ---------- line grid ----------
 //
-// The text size is a number of lines per phone-width page, and everything else
-// follows from it:
+// The text size is a number of pixels, and the line height follows from it:
 //
-//     font  = floor(basis / lines) × ¾     the size of the characters
+//     font  = the chosen size
 //     pitch = font × leading                the line height, a whole number of px
 //                                           (iOS snaps line advances to whole
 //                                           pixels; a fractional pitch made
@@ -226,17 +214,9 @@ function toggleSettings() {
 // and the position tracker look.
 const GRID = { pitch: 0, band: 0 };
 
-// THE text size. It is "lines per page across a phone-width page", so on a
-// desktop window (whose shorter side is ~1000 px) it would come out at 70+ px:
-// the basis is capped there.
-const gridBasis = () => Math.min(Math.min(innerWidth, innerHeight), innerWidth > 700 ? 340 : 480);
-
 function gridPitch() {
-  const basis = gridBasis();
-  // the size comes from the line count at the default spacing; the line height
-  // is that times the chosen leading, so changing the leading moves the lines
-  // apart without resizing the text
-  const font = Math.max(8, Math.floor(basis / settings.lines)) * 0.75;
+  // changing the leading moves the lines apart without resizing the text
+  const font = settings.size;
   return { font, pitch: Math.max(8, Math.round(font * settings.leading)) };
 }
 
