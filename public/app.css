@@ -619,6 +619,7 @@ kbd {
 }
 #uploadScreen input[type="file"] { font: inherit; max-width: 100%; }
 .upwarn { color: var(--accent); }
+.updone { color: var(--fg); font-weight: 600; }
 #uploadScreen select {
   flex: 1;
   min-width: 0;

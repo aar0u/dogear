@@ -893,6 +893,7 @@ async function startUpload() {
   $("#upForm").hidden = true;
   $("#upBack").hidden = true;
   $("#upMsg").textContent = "";
+  $("#upMsg").classList.remove("updone");
   $("#upRun").hidden = false;
   $("#upFill").style.width = "0%";
   $("#upStatus").textContent = t("up.preparing");
@@ -967,8 +968,10 @@ async function startUpload() {
     } catch { /* full */ }
     failedUploadId = null;
     pendingBook = null;
-    $("#upFill").style.width = "100%";
-    $("#upStatus").textContent = "";
+    // finished: the "do not leave" warning and the bar go away, so the only
+    // thing left on screen says it is done
+    $("#upRun").hidden = true;
+    $("#upMsg").classList.add("updone");
     $("#upMsg").textContent = t("up.done", title) + (replaceError ? ` ${t("up.replaceFail", replaceError)}` : "");
     renderUpBooks();
   } catch (err) {
