@@ -33,7 +33,7 @@ try {
     method: "POST", body: JSON.stringify({ key: env.READER_KEY }),
   }), env, {});
   assert.equal(login.status, 200);
-  assert.match(login.headers.get("set-cookie"), /bw_key=/);
+  assert.match(login.headers.get("set-cookie"), /dogear_key=/);
   assert.equal((await worker.fetch(new Request("http://t/api/auth", { method: "POST", body: JSON.stringify({ key: "x" }) }), env, {})).status, 401);
 
   // shelf and book

@@ -26,7 +26,7 @@
 // The pack: the models, tokens, rule tables, the compiled lexicon AND ort's
 // 13 MB wasm live on the wasmtts-assets GitHub release under their
 // content-versioned packNames, proxied same-origin by /api/wasmtts/
-// (src/worker.js) and cached by the synth worker in its own "bw-wasmtts"
+// (src/worker.js) and cached by the synth worker in its own "dogear-wasmtts"
 // Cache API bucket, swept by keep-set on every download. ort's wasm rides
 // the same pipeline since wasmtts v2.4.0 (the worker injects it as
 // ort.env.wasm.wasmBinary, so ort never fetches by URL): one bucket, one
@@ -62,8 +62,8 @@ export const RATE = 16000; // the model's own rate; lame encodes at it directly
 export const OVERRIDES = {};
 
 // ---- the config: which URL serves what ------------------------------------
-const CACHE = "bw-wasmtts";          // the synth worker's pack bucket (cacheName)
-const LEGACY_RT = "bw-wasmtts-rt";   // v2.3.0's ort-wasm bucket — adopted, then deleted
+const CACHE = "dogear-wasmtts";          // the synth worker's pack bucket (cacheName)
+const LEGACY_RT = "dogear-wasmtts-rt";   // v2.3.0's ort-wasm bucket — adopted, then deleted
 export const ENGINE_BASE = "/vendor/wasmtts/"; // the tarball's files, on the sw shell
 export const PACK_BASE = "/api/wasmtts/";      // the assets release, proxied same-origin
 
@@ -205,7 +205,7 @@ export function setRestore(fn) { restoreHook = fn; }
 // is the model's (~300 ms) rather than two units' trailing+leading silence
 // (~740 ms, measured — DESIGN.md → Pauses). Whether that reads better is a
 // listening call, made on /wasmtest's knob; the reader takes the same key.
-export const UNIT_KEY = "bw_tts_unit";
+export const UNIT_KEY = "dogear_tts_unit";
 export function unitChars() {
   try { return Math.max(0, Number(localStorage.getItem(UNIT_KEY)) || 0); } catch { return 0; }
 }

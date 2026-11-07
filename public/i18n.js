@@ -6,21 +6,21 @@
 // globals. Values are plain strings, or functions when a number or a name
 // lands in the middle of the sentence — the two languages put them in
 // different places, so the whole sentence is the unit of translation.
-// The language is remembered per device (bw_lang) and does not sync.
+// The language is remembered per device (dogear_lang) and does not sync.
 
-const BW_DEFAULT_LANG = "zh";
+const DEFAULT_UI_LANG = "zh";
 
 // Gaps in the current language are filled from en, so a missing zh string
 // shows up as an English phrase in the Chinese toolbar instead of a raw key.
-const BW_FALLBACK_LANG = "en";
+const FALLBACK_UI_LANG = "en";
 
 // KB/MB reads the same in both languages.
-const bwBytes = (n) =>
+const fmtBytes = (n) =>
   n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB`
     : n >= 1024 ? `${(n / 1024).toFixed(1)} KB`
       : `${n} bytes`;
 
-const BW_STRINGS = {
+const UI_STRINGS = {
   zh: {
     "lib.loading": "加载书目…",
     "lib.loadFail": (msg) => `无法加载书目（${msg}）。 `,
@@ -30,7 +30,7 @@ const BW_STRINGS = {
       `${chapters} 章 · ` + (chars >= 10000 ? `${Math.round(chars / 10000)} 万字` : `${chars} 字`),
     "lib.chapterN": (n) => `第 ${n} 章`,
     "lib.online": "在线",
-    "lib.empty": "书架还是空的 — 点页脚的「上传书」添加。",
+    "lib.empty": "书架还是空的 — 点页脚的“上传书”添加。",
     "up.open": "上传书",
     "up.h": "上传书",
     "up.pick": "选择 TXT 或 EPUB 文件。解析在这台设备上完成，再逐章上传到 WebDAV。",
@@ -70,9 +70,9 @@ const BW_STRINGS = {
     "guide.h": "加入主屏幕",
     "guide.why": "安装成 App 之后全屏打开、离线阅读更可靠，也才能收到新书通知。",
     "guide.ios1": "在 Safari 点底部的分享按钮（方框加向上箭头）。",
-    "guide.ios2": "往下滑，选「加入主屏幕」，再按「加入」。",
+    "guide.ios2": "往下滑，选“加入主屏幕”，再按“加入”。",
     "guide.other1": "打开浏览器菜单（⋮）。",
-    "guide.other2": "选「安装应用程序」或「加入主屏幕」。",
+    "guide.other2": "选“安装应用程序”或“加入主屏幕”。",
     "guide.done": "之后就从主屏幕打开 dogear。",
     "guide.continue": "先继续阅读",
     "update.available": (b) => `新版本已上线（${b}）。`,
@@ -116,18 +116,24 @@ const BW_STRINGS = {
     "ui.contents": "目录",
     "ui.listen": "朗读",
     "ui.offlineCache": "离线缓存",
-    "ui.smaller": "缩小字级",
-    "ui.larger": "放大字级",
+    "ui.settings": "阅读设置",
+    "set.theme": "主题",
+    "set.bg": "背景",
+    "set.size": "字号",
+    "set.leading": "行距",
+    "theme.auto": "跟随系统",
+    "theme.light": "浅色",
+    "theme.dark": "深色",
     "ui.wake": "保持屏幕恒亮",
-    "ui.theme": "主题（自动／亮／暗）",
-    "ui.bg": (name) => `背景颜色：${name}`,
-    "ui.leading": (v) => `行距：${v} 倍`,
     "ui.marks": "书签",
     "marks.add": "＋ 在目前位置加书签",
     "marks.delete": "删除书签",
-    "ui.next": "‹ 下一章",
-    "ui.prev": "上一章 ›",
+    "ui.next": "下一章 ›",
+    "ui.prev": "‹ 上一章",
     "ui.close": "关闭",
+    "zones.next": "下一页",
+    "zones.prev": "上一页",
+    "zones.menu": "菜单",
     "sync.pending": "有改动待同步",
     "sync.sending": "同步中",
     "sync.ok": "已同步",
@@ -135,9 +141,9 @@ const BW_STRINGS = {
     "ui.offlineOff": "离线缓存：关",
     "ui.offlineOn": (n) => `离线缓存：已存 ${n} 章`,
     "ui.offlineAuto": (n) => `自动缓存附近章节（已存 ${n} 章）· 点按保存完整范围`,
-    "jump.synced": (here, there) => `已同步到「${here}」；此设备上次读到「${there}」`,
+    "jump.synced": (here, there) => `已同步到“${here}”；此设备上次读到“${there}”`,
     "jump.back": "回到上次位置",
-    "jump.remote": (there) => `另一台设备读到「${there}」`,
+    "jump.remote": (there) => `另一台设备读到“${there}”`,
     "jump.go": "跳过去",
     "bg.default": "默认",
     "bg.light-brown": "浅褐",
@@ -270,18 +276,24 @@ const BW_STRINGS = {
     "ui.contents": "Contents",
     "ui.listen": "Listen",
     "ui.offlineCache": "Offline cache",
-    "ui.smaller": "Smaller text",
-    "ui.larger": "Larger text",
+    "ui.settings": "Reading settings",
+    "set.theme": "Theme",
+    "set.bg": "Paper",
+    "set.size": "Text size",
+    "set.leading": "Line spacing",
+    "theme.auto": "Follow system",
+    "theme.light": "Light",
+    "theme.dark": "Dark",
     "ui.wake": "Keep the screen awake",
-    "ui.theme": "Theme (auto/light/dark)",
-    "ui.bg": (name) => `Paper colour: ${name}`,
-    "ui.leading": (v) => `Line spacing: ${v}×`,
     "ui.marks": "Bookmarks",
     "marks.add": "+ Bookmark this spot",
     "marks.delete": "Delete bookmark",
-    "ui.next": "‹ Next",
-    "ui.prev": "Prev ›",
+    "ui.next": "Next ›",
+    "ui.prev": "‹ Prev",
     "ui.close": "Close",
+    "zones.next": "Next page",
+    "zones.prev": "Previous page",
+    "zones.menu": "Menu",
     "sync.pending": "Changes waiting to sync",
     "sync.sending": "Syncing",
     "sync.ok": "Synced",
@@ -332,32 +344,32 @@ const BW_STRINGS = {
   },
 };
 
-function bwLang() {
-  const v = localStorage.getItem("bw_lang");
-  return v && BW_STRINGS[v] ? v : BW_DEFAULT_LANG;
+function uiLang() {
+  const v = localStorage.getItem("dogear_lang");
+  return v && UI_STRINGS[v] ? v : DEFAULT_UI_LANG;
 }
 
-function bwOtherLang() {
-  return bwLang() === "zh" ? "en" : "zh";
+function otherUiLang() {
+  return uiLang() === "zh" ? "en" : "zh";
 }
 
 // The document language is not cosmetic: it picks the CJK font fallback when
 // the web font misses a glyph, and on iOS it decides which dictionary a
 // long-press lookup opens.
-function bwApplyLang() {
-  document.documentElement.lang = bwLang() === "zh" ? "zh-Hans" : "en";
+function applyUiLang() {
+  document.documentElement.lang = uiLang() === "zh" ? "zh-Hans" : "en";
 }
 
-function bwSetLang(v) {
-  try { localStorage.setItem("bw_lang", v); } catch { /* private mode: this session only */ }
-  bwApplyLang();
+function setUiLang(v) {
+  try { localStorage.setItem("dogear_lang", v); } catch { /* private mode: this session only */ }
+  applyUiLang();
 }
 
 // Missing key → the en string → the key itself, so a half-finished
 // translation degrades to something readable instead of blank chrome, and
-// stays visible while it does (see BW_FALLBACK_LANG).
+// stays visible while it does (see FALLBACK_UI_LANG).
 function t(key, ...args) {
-  const v = BW_STRINGS[bwLang()]?.[key] ?? BW_STRINGS[BW_FALLBACK_LANG][key] ?? key;
+  const v = UI_STRINGS[uiLang()]?.[key] ?? UI_STRINGS[FALLBACK_UI_LANG][key] ?? key;
   return typeof v === "function" ? v(...args) : v;
 }
 
@@ -374,4 +386,4 @@ function applyI18n() {
     node.title = t(node.dataset.i18nTitle);
 }
 
-bwApplyLang();
+applyUiLang();

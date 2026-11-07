@@ -509,15 +509,15 @@ button {
 .toc {
   position: fixed;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: min(20rem, 85vw);
   z-index: 20;
   background: var(--card);
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
 }
 
 .toc[hidden] { display: none; }
@@ -574,6 +574,80 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
+/* ---------- reading settings (toggleSettings) ---------- */
+
+#settingsPanel {
+  position: fixed;
+  top: calc(3.4rem + env(safe-area-inset-top));
+  right: max(0.6rem, env(safe-area-inset-right));
+  z-index: 12;
+  width: min(18rem, 92vw);
+  padding: 0.35rem 0.9rem 0.55rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.5rem 0;
+}
+.set-row select {
+  font: inherit;
+  min-width: 7.5rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* ---------- touch ---------- */
+
+/* A tap that turns the page must not also select the word under the finger. */
+@media (pointer: coarse) {
+  #content {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* The tap-zone hint (showTapZones). Same 3×3 geometry as tapZone() in app.js:
+   green everywhere (forward), the centre cell is the menu, the one below it is
+   back. Later siblings paint over earlier ones. */
+#tapzones {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  transition: opacity 0.35s;
+}
+#tapzones.off { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { #tapzones { transition: none; } }
+.tz {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tz span {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 6px #000;
+}
+.tz-next { inset: 0; background: rgba(120, 200, 130, 0.4); }
+.tz-top { left: 33.333%; top: 0; width: 33.334%; height: 33.333%; }
+.tz-left { left: 0; top: 33.333%; width: 33.333%; height: 33.334%; }
+.tz-right { left: 66.667%; top: 33.333%; width: 33.333%; height: 33.334%; }
+.tz-menu { left: 33.333%; top: 33.333%; width: 33.334%; height: 33.334%; background: rgba(70, 75, 100, 0.6); }
+.tz-prev { left: 33.333%; top: 66.667%; width: 33.334%; height: 33.333%; background: rgba(235, 120, 150, 0.45); }
 
 /* ---------- upload a book ---------- */
 

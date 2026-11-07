@@ -46,16 +46,16 @@
     <section id="shelfScreen" class="library" hidden>
       <h1><span class="brand">dogear</span></h1>
       <p id="staleNote" class="muted small" hidden>
-        <span data-i18n="lib.offlineList">離線 — 顯示上次看到的書目。 </span>
-        <button id="staleRetry" class="linklike" data-i18n="lib.retry">重試</button>
+        <span data-i18n="lib.offlineList">离线 — 显示上次看到的书目。 </span>
+        <button id="staleRetry" class="linklike" data-i18n="lib.retry">重试</button>
       </p>
-      <!-- 續讀: the book this device has open (bw_last_book), same rule "/"
+      <!-- 續讀: the book this device has open (dogear_last_book), same rule "/"
            resumes by. The ⇣ is a sibling of the link, same as every row. -->
       <div id="heroRow" class="book-row hero" hidden>
         <a id="heroLink" class="book-card hero-card">
           <div id="heroCover" class="cover"></div>
           <div class="hero-info">
-            <span class="hero-tag" data-i18n="lib.continue">續讀</span>
+            <span class="hero-tag" data-i18n="lib.continue">续读</span>
             <span class="hero-title" id="heroTitle"></span>
             <span class="hero-where" id="heroWhere"></span>
             <span class="thread">
@@ -67,10 +67,10 @@
         <button id="heroOffline" class="iconbtn shelf-offline">⇣</button>
       </div>
       <div id="bookList" class="cover-grid"></div>
-      <p id="emptyNote" class="muted" hidden data-i18n="lib.empty">书架还是空的 — 点页脚的「上传书」添加。</p>
+      <p id="emptyNote" class="muted" hidden data-i18n="lib.empty">书架还是空的 — 点页脚的“上传书”添加。</p>
       <p class="muted small">
-        <span data-i18n="lib.readingAs">閱讀身分 </span><code id="uidCode">—</code>
-        <button id="changeKeyBtn" class="linklike" data-i18n="lib.change">更換</button>
+        <span data-i18n="lib.readingAs">当前身份 </span><code id="uidCode">—</code>
+        <button id="changeKeyBtn" class="linklike" data-i18n="lib.change">更换密码</button>
         <br>
         <span data-i18n="lib.bookmarkHint">进度、书签和设置保存在 WebDAV 上，所有设备自动同步。</span>
       </p>
@@ -78,21 +78,21 @@
            can deliver — on iPhone that means the installed PWA -->
       <div hidden>
       <p id="pushRow" class="muted small" hidden>
-        <span data-i18n="push.label">新書與更新通知：</span>
+        <span data-i18n="push.label">新书与更新通知：</span>
         <button id="pushBtn" class="linklike">…</button>
         <span id="pushTestWrap" hidden> ·
-          <button id="pushTestBtn" class="linklike" data-i18n="push.test">測試</button>
+          <button id="pushTestBtn" class="linklike" data-i18n="push.test">测试</button>
         </span>
       </p>
       </div>
       <p class="muted small">
         <span id="buildLine"></span> ·
-        <span hidden><button id="relnotesBtn" class="linklike" data-i18n="lib.relnotes" data-i18n-title="lib.relnotesTitle">版本紀錄</button></span>
+        <span hidden><button id="relnotesBtn" class="linklike" data-i18n="lib.relnotes" data-i18n-title="lib.relnotesTitle">版本记录</button></span>
         <button id="uploadBtn" class="linklike" data-i18n="up.open">上传书</button> ·
-        <button id="refreshBtn" class="linklike" data-i18n="lib.refresh" data-i18n-title="lib.refreshTitle">重新整理</button> ·
+        <button id="refreshBtn" class="linklike" data-i18n="lib.refresh" data-i18n-title="lib.refreshTitle">刷新</button> ·
         <button id="langBtn" class="linklike" data-i18n="lib.langSwitch" data-i18n-title="lib.langTitle">English</button>
         <span id="installWrap"> ·
-          <button id="installBtn" class="linklike" data-i18n="lib.installHint">加入主畫面</button>
+          <button id="installBtn" class="linklike" data-i18n="lib.installHint">加入主屏幕</button>
         </span>
       </p>
       <!-- 版本紀錄 (paintRelnotes): /releases.json 的 reader-facing 行 -->
@@ -102,19 +102,19 @@
     <!-- the install guide (renderInstallGuide) -->
     <section id="guideScreen" class="library" hidden>
       <h1><span class="brand">dogear</span></h1>
-      <h2 data-i18n="guide.h">加入主畫面</h2>
-      <p class="muted" data-i18n="guide.why">安裝成 App 之後全螢幕開啟、離線閱讀更可靠，也才能收到新書通知。</p>
+      <h2 data-i18n="guide.h">加入主屏幕</h2>
+      <p class="muted" data-i18n="guide.why">安装成 App 之后全屏打开、离线阅读更可靠，也才能收到新书通知。</p>
       <ol id="guideIos" class="guide-steps">
-        <li data-i18n="guide.ios1">在 Safari 點底部的分享按鈕（方框加向上箭頭）。</li>
-        <li data-i18n="guide.ios2">往下捲，選「加入主畫面」，再按「加入」。</li>
+        <li data-i18n="guide.ios1">在 Safari 点底部的分享按钮（方框加向上箭头）。</li>
+        <li data-i18n="guide.ios2">往下滑，选“加入主屏幕”，再按“加入”。</li>
         <li data-i18n="guide.done">之后就从主屏幕打开 dogear。</li>
       </ol>
       <ol id="guideOther" class="guide-steps" hidden>
-        <li data-i18n="guide.other1">打開瀏覽器選單（⋮）。</li>
-        <li data-i18n="guide.other2">選「安裝應用程式」或「加入主畫面」。</li>
+        <li data-i18n="guide.other1">打开浏览器菜单（⋮）。</li>
+        <li data-i18n="guide.other2">选“安装应用程序”或“加入主屏幕”。</li>
         <li data-i18n="guide.done">之后就从主屏幕打开 dogear。</li>
       </ol>
-      <p><button id="guideContinue" class="linklike" data-i18n="guide.continue">先繼續閱讀</button></p>
+      <p><button id="guideContinue" class="linklike" data-i18n="guide.continue">先继续阅读</button></p>
     </section>
 
     <!-- upload a book (openUpload): parsed in the browser, uploaded chapter by chapter -->
@@ -148,6 +148,7 @@
   </div>
   <!-- classic script, before app.js: it defines the t() every string above
        goes through, and app.js is not a module -->
+  <script src="/boot.js"></script>
   <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>

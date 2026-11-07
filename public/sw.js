@@ -25,9 +25,9 @@
 // this cache and their URLs are unversioned — bump the shell version
 // whenever any of them changes, or installed devices keep the old asset
 // forever.
-const SHELL = "bw-shell-v47"; // v47: every narration engine starts on a sentence and shares reportOffset
-// The offline TTS engine's big binaries live in their own bw-wasmtts cache
-// (the synth worker's) and ort's wasm in bw-wasmtts-rt (above), but every
+const SHELL = "dogear-shell-v51"; // v51: reading-settings panel with lists instead of cycling buttons
+// The offline TTS engine's big binaries live in their own dogear-wasmtts cache
+// (the synth worker's) and ort's wasm in dogear-wasmtts-rt (above), but every
 // same-origin file the engine loads by URL rides the shell: the worker
 // script itself, the scripts it importScripts (ort's UMD, lamejs, the engine
 // modules), ort's loader glue, the kaldifst wasm, the runtime profile. Without
@@ -43,7 +43,7 @@ const SHELL = "bw-shell-v47"; // v47: every narration engine starts on a sentenc
 // is the answer: it derives the list from wasm-tts.mjs's imports and from
 // what vendor.mjs put under public/vendor/wasmtts/, fails if one is missing
 // here, and fails again if this list changes without SHELL moving.
-const SHELL_ASSETS = ["/", "/app.css", "/i18n.js", "/app.js", "/player.mjs", "/tts-core.mjs", "/wasm-tts.mjs", "/vendor/wasmtts/continuous-stream-player.mjs", "/vendor/wasmtts/kaldifst-normalizer.js", "/vendor/wasmtts/lamejs-1.2.1.min.js", "/vendor/wasmtts/matcha-assets.json", "/vendor/wasmtts/matcha-engine.js", "/vendor/wasmtts/matcha-frontend.js", "/vendor/wasmtts/matcha-kaldifst-normalizer.js", "/vendor/wasmtts/matcha-kaldifst-normalizer.wasm", "/vendor/wasmtts/matcha-lexicon.meta.json", "/vendor/wasmtts/matcha-producer.mjs", "/vendor/wasmtts/matcha-profile.runtime.json", "/vendor/wasmtts/matcha-synthesis.js", "/vendor/wasmtts/matcha-taiwan-profile.js", "/vendor/wasmtts/matcha-worker.js", "/vendor/wasmtts/ort-1.27.0-wasm-simd-threaded.mjs", "/vendor/wasmtts/ort-1.27.0-wasm.min.js", "/vendor/wasmtts/pack-manifest.mjs", "/manifest.webmanifest"];
+const SHELL_ASSETS = ["/", "/app.css", "/boot.js", "/i18n.js", "/app.js", "/player.mjs", "/tts-core.mjs", "/wasm-tts.mjs", "/vendor/wasmtts/continuous-stream-player.mjs", "/vendor/wasmtts/kaldifst-normalizer.js", "/vendor/wasmtts/lamejs-1.2.1.min.js", "/vendor/wasmtts/matcha-assets.json", "/vendor/wasmtts/matcha-engine.js", "/vendor/wasmtts/matcha-frontend.js", "/vendor/wasmtts/matcha-kaldifst-normalizer.js", "/vendor/wasmtts/matcha-kaldifst-normalizer.wasm", "/vendor/wasmtts/matcha-lexicon.meta.json", "/vendor/wasmtts/matcha-producer.mjs", "/vendor/wasmtts/matcha-profile.runtime.json", "/vendor/wasmtts/matcha-synthesis.js", "/vendor/wasmtts/matcha-taiwan-profile.js", "/vendor/wasmtts/matcha-worker.js", "/vendor/wasmtts/ort-1.27.0-wasm-simd-threaded.mjs", "/vendor/wasmtts/ort-1.27.0-wasm.min.js", "/vendor/wasmtts/pack-manifest.mjs", "/manifest.webmanifest"];
 const NET_MS = 1000; // mirrors NET_MS in app.js — the same line, drawn twice
 
 self.addEventListener("install", (e) => {
@@ -55,7 +55,8 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     (async () => {
       for (const k of await caches.keys())
-        if (k.startsWith("bw-shell-") && k !== SHELL) await caches.delete(k);
+        // "bw-shell-" is what this cache was called before the rename
+        if ((k.startsWith("dogear-shell-") || k.startsWith("bw-shell-")) && k !== SHELL) await caches.delete(k);
       await self.clients.claim();
     })(),
   );
@@ -66,7 +67,7 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   // /api/ is never served from here — /api/wasmtts/ included: the voice
   // pack, ort's wasm with it, is the synth worker's (wasmtts's
-  // matcha-worker.js caches it in bw-wasmtts and sweeps that by keep-set).
+  // matcha-worker.js caches it in dogear-wasmtts and sweeps that by keep-set).
   if (url.pathname.startsWith("/api/")) return;
 
   if (url.pathname.startsWith("/books/")) {
@@ -241,8 +242,8 @@ async function manifestFetch(e) {
     // /books/<book-id>/manifest.json — the id, not the slug: offline caches
     // are named after the thing that cannot be renamed out from under them
     const id = decodeURIComponent(new URL(e.request.url).pathname.split("/")[2]);
-    if (await caches.has(`bw-book-${id}`))
-      await (await caches.open(`bw-book-${id}`)).put(e.request, copy);
+    if (await caches.has(`dogear-book-${id}`))
+      await (await caches.open(`dogear-book-${id}`)).put(e.request, copy);
   });
   return res ?? (await caches.match(e.request)) ?? net;
 }

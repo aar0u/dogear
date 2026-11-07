@@ -1,4 +1,4 @@
-// Bookworm TTS audiobook player: both playback engines, the player bar,
+// dogear TTS player: all playback engines, the player bar,
 // and MediaSession. app.js preloads this module at reader init and wires
 // the reader internals in via init(deps); everything else stays private.
 //
@@ -23,7 +23,7 @@
 //   network after the one-time voice pack download. The reader's DEFAULT when
 //   the pack is in the cache (downloaded by /wasmtest or the pill, never
 //   silently — ▶ must not quietly pull ~140 MB over cellular). localStorage
-//   bw_tts picks the default engine, "offline" (default) or "online"; the
+//   dogear_tts picks the default engine, "offline" (default) or "online"; the
 //   other one is the fallback (see ttsPref). Playback is wasmtts's own
 //   continuous-stream-player on the reader's one blessed element: the same
 //   single-timeline MediaSource discipline as STREAM, with the lock-screen
@@ -45,7 +45,7 @@ const useWasm = () => wasmOn;
 // reads as "online" so a phone that set it keeps its choice.
 export function ttsPref() {
   let v = null;
-  try { v = localStorage.getItem("bw_tts"); } catch { /* private mode */ }
+  try { v = localStorage.getItem("dogear_tts"); } catch { /* private mode */ }
   return v === "online" || v === "stream" ? "online" : "offline";
 }
 // Re-run whenever the pack may have changed (module load, pill re-download,
@@ -61,7 +61,7 @@ function pickEngine() {
     packOk = !!r;
     if (player.on) return;
     wasmOn = packOk && ttsPref() === "offline";
-    console.log(`bookworm tts engine: ${wasmOn ? "wasm (offline matcha)" : useStream ? "stream (ManagedMediaSource)" : "chain"}`);
+    console.log(`dogear tts engine: ${wasmOn ? "wasm (offline matcha)" : useStream ? "stream (ManagedMediaSource)" : "chain"}`);
     wasmPrime();
   });
 }
@@ -131,7 +131,7 @@ let packNoticed = false; // the voice-pack pill, at most once per session
 // dogear shows it once per device (not once per session, which nagged on every
 // visit) and takes it away by itself after a few seconds; `force` is the reader
 // asking for the offline voice by tapping the engine button, which always answers.
-const PACK_SEEN_KEY = "bw_pack_offer_seen";
+const PACK_SEEN_KEY = "dogear_pack_offer_seen";
 function noticePack(force = false) {
   if ((packNoticed && !force) || useWasm()) return;
   // Cache Storage exists only on https or localhost. Elsewhere (a plain
@@ -204,7 +204,7 @@ function toggleTtsPref() {
   // without the pack there is nothing to switch to — the tap is how you get it
   if (!packOk) { noticePack(true); return; }
   const next = ttsPref() === "online" ? "offline" : "online";
-  try { localStorage.setItem("bw_tts", next); } catch { /* private mode: this session only */ }
+  try { localStorage.setItem("dogear_tts", next); } catch { /* private mode: this session only */ }
   wlog(`預設引擎 → ${next}`);
   if (!player.on) return;
   const off = state.off;
@@ -283,7 +283,7 @@ function ensureAudio() {
 const RATES = [0.8, 1, 1.2, 1.5, 1.8, 2];
 const audios = new Set();
 const ttsRate = () => {
-  const v = Number(localStorage.getItem("bw_tts_rate"));
+  const v = Number(localStorage.getItem("dogear_tts_rate"));
   return RATES.includes(v) ? v : 1;
 };
 
@@ -296,7 +296,7 @@ function trackAudio(a) {
 
 function cycleRate() {
   const next = RATES[(RATES.indexOf(ttsRate()) + 1) % RATES.length];
-  try { localStorage.setItem("bw_tts_rate", String(next)); } catch { /* private mode: this session only */ }
+  try { localStorage.setItem("dogear_tts_rate", String(next)); } catch { /* private mode: this session only */ }
   for (const a of audios) {
     a.defaultPlaybackRate = next;
     a.playbackRate = next;
@@ -843,7 +843,7 @@ export const wasm = {
 // way to find that out from an iPhone.
 const wlog = (() => {
   let buf = [], timer = 0, t0 = 0, device = "";
-  try { device = localStorage.getItem("bw_uid") ?? ""; } catch { /* private mode */ }
+  try { device = localStorage.getItem("dogear_uid") ?? ""; } catch { /* private mode */ }
   const flush = () => {
     timer = 0;
     if (!buf.length) return;
@@ -1311,4 +1311,4 @@ function setMediaSession() {
 }
 
 // debug handle: e2e assertions and the remote-inspector device pass
-globalThis.bwPlayer = { player, stream, wasm, useStream, useWasm, ttsPref };
+globalThis.dogearPlayer = { player, stream, wasm, useStream, useWasm, ttsPref };

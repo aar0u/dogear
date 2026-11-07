@@ -63,40 +63,40 @@ const LEADINGS = [1.2, 4 / 3, 1.5, 1.7, 1.9, 2.1];
 // fontSize, vertical and bg sync to the server per reader id (settingsChanged
 // marks + schedules the push); theme and lines deliberately stay per-device
 const settings = {
-  get fontSize() { return Number(localStorage.getItem("bw_font")) || 24; },
-  set fontSize(v) { localStorage.setItem("bw_font", String(v)); applySettings(); settingsChanged(); },
+  get fontSize() { return Number(localStorage.getItem("dogear_font")) || 24; },
+  set fontSize(v) { localStorage.setItem("dogear_font", String(v)); applySettings(); settingsChanged(); },
   // 直排 text size, expressed the way the page is actually built: how many
   // columns fit on one page (字級 = pitch × ¾ follows from it). Per-device
   // like theme — a phone and a tablet want the same physical text size,
   // which is a DIFFERENT column count on each, so syncing it would make one
   // of them wrong (user 07-28).
   get lines() {
-    const v = Number(localStorage.getItem("bw_lines"));
+    const v = Number(localStorage.getItem("dogear_lines"));
     return v >= 4 && v <= 40 ? v : DEFAULTS.lines;
   },
   set lines(v) {
-    localStorage.setItem("bw_lines", String(Math.min(40, Math.max(4, Math.round(v)))));
+    localStorage.setItem("dogear_lines", String(Math.min(40, Math.max(4, Math.round(v)))));
     applySettings();
   },
   // the width 每頁行數 was calibrated against: the 直排 page in PORTRAIT.
   // Kept so that rotating or switching to 橫排 can reuse the SAME pitch
   // instead of re-deriving a different text size for a different viewport.
-  get calibWidth() { return Number(localStorage.getItem("bw_calibw")) || 0; },
-  set calibWidth(v) { localStorage.setItem("bw_calibw", String(Math.round(v))); },
+  get calibWidth() { return Number(localStorage.getItem("dogear_calibw")) || 0; },
+  set calibWidth(v) { localStorage.setItem("dogear_calibw", String(Math.round(v))); },
   get leading() {
-    const v = Number(localStorage.getItem("bw_leading"));
+    const v = Number(localStorage.getItem("dogear_leading"));
     return v >= 1.1 && v <= 2.5 ? v : DEFAULTS.leading;
   },
-  set leading(v) { localStorage.setItem("bw_leading", String(v)); applySettings(); settingsChanged(); },
-  get theme() { return localStorage.getItem("bw_theme") ?? DEFAULTS.theme; },
-  set theme(v) { localStorage.setItem("bw_theme", v); applySettings(); },
+  set leading(v) { localStorage.setItem("dogear_leading", String(v)); applySettings(); settingsChanged(); },
+  get theme() { return localStorage.getItem("dogear_theme") ?? DEFAULTS.theme; },
+  set theme(v) { localStorage.setItem("dogear_theme", v); applySettings(); },
   get vertical() {
-    const v = localStorage.getItem("bw_vertical");
+    const v = localStorage.getItem("dogear_vertical");
     return v === null ? DEFAULTS.vertical : v === "1";
   },
-  set vertical(v) { localStorage.setItem("bw_vertical", v ? "1" : "0"); applySettings(); settingsChanged(); },
-  get bg() { return localStorage.getItem("bw_bg") ?? DEFAULTS.bg; },
-  set bg(v) { localStorage.setItem("bw_bg", v); applySettings(); settingsChanged(); },
+  set vertical(v) { localStorage.setItem("dogear_vertical", v ? "1" : "0"); applySettings(); settingsChanged(); },
+  get bg() { return localStorage.getItem("dogear_bg") ?? DEFAULTS.bg; },
+  set bg(v) { localStorage.setItem("dogear_bg", v); applySettings(); settingsChanged(); },
 };
 
 // Screen Wake Lock (iOS 16.4+): keep the display on while reading. A
@@ -104,7 +104,7 @@ const settings = {
 // system releases the lock whenever the app hides; the visibilitychange
 // hook re-acquires on return.
 let wakeLock = null;
-const wakeOn = () => localStorage.getItem("bw_wake") === "1";
+const wakeOn = () => localStorage.getItem("dogear_wake") === "1";
 async function applyWakeLock() {
   $("#wakeBtn")?.classList.toggle("active", wakeOn());
   const want = wakeOn() && document.visibilityState === "visible" && !!$("#content");
@@ -120,12 +120,8 @@ async function applyWakeLock() {
 }
 document.addEventListener("visibilitychange", applyWakeLock);
 function toggleWake() {
-  localStorage.setItem("bw_wake", wakeOn() ? "0" : "1");
+  localStorage.setItem("dogear_wake", wakeOn() ? "0" : "1");
   applyWakeLock();
-}
-
-function bgName() {
-  return t("bg." + (settings.bg || "default"));
 }
 
 function applySettings() {
@@ -137,46 +133,70 @@ function applySettings() {
   if (settings.bg) root.dataset.bg = settings.bg;
   else delete root.dataset.bg;
   applyGrid(); // 直排 typography is derived, so it re-derives with settings
-  $("#leadBtn")?.setAttribute("title", t("ui.leading", settings.leading.toFixed(2)));
-  const bgBtn = $("#bgBtn");
-  if (bgBtn) {
-    bgBtn.title = t("ui.bg", bgName());
-    bgBtn.classList.toggle("active", !!settings.bg);
-  }
 }
 
-function cycleTheme() {
-  const order = ["auto", "light", "dark"];
-  settings.theme = order[(order.indexOf(settings.theme) + 1) % order.length];
-}
-
-function cycleBg() {
-  const i = BACKGROUNDS.indexOf(settings.bg); // unknown value → -1 → back to 預設
-  settings.bg = BACKGROUNDS[(i + 1) % BACKGROUNDS.length];
-}
-
-// A± reflows the whole line grid, so without re-anchoring the same scroll
-// position shows DIFFERENT text — the reader visually jumps, and the next
-// scroll would save that drifted point as the bookmark. Land back on the
-// tracked offset instead (the same dance the 直排/橫排 toggle does). The
-// bookmark itself is a char offset — font-independent by design — so this
-// only re-aims the view, never rewrites the record.
-// The size ladder IS the column count of the 直排 calibration: bigger text
-// = one column fewer. A± means the same thing in 橫排 and in landscape —
-// they render the calibrated size too, so re-deriving anything there would
-// contradict "do not change the font size while rotating or switching
-// modes" (user 07-28).
-function setFont(d) {
-  const next = Math.min(40, Math.max(4, settings.lines + (d > 0 ? -1 : 1)));
-  if (next === settings.lines) return;
-  settings.lines = next; // setter → applySettings → applyGrid
+// A size or spacing change reflows the whole line grid, so without
+// re-anchoring the same scroll position shows DIFFERENT text — the reader
+// visually jumps, and the next scroll would save that drifted point as the
+// bookmark. Land back on the tracked offset instead. The bookmark itself is a
+// char offset — independent of size and spacing — so this only re-aims the
+// view, never rewrites the record.
+function reanchor() {
   if ($("#content p[data-off]")) restoreScroll(state.off);
 }
 
-function cycleLeading() {
-  const i = LEADINGS.findIndex((l) => Math.abs(l - settings.leading) < 0.01);
-  settings.leading = LEADINGS[(i + 1) % LEADINGS.length]; // setter → applyGrid
-  if ($("#content p[data-off]")) restoreScroll(state.off); // same re-anchor as setFont
+// ---------- the reading-settings panel ----------
+//
+// Theme, paper colour, text size and line spacing are lists you pick from, not
+// buttons that cycle: a cycle makes you press through the choices you do not
+// want (light → dark → auto, where auto looks like light, took two presses to
+// get back to light), and a button cannot say what it is set to.
+
+// The sizes offered, as the pixel size each "lines per page" value gives on
+// THIS window (the same arithmetic as gridPitch); the stored value is always
+// among them.
+function sizeOptions() {
+  const raw = settings.calibWidth || Math.min(innerWidth, innerHeight);
+  const basis = Math.min(raw, innerWidth > 700 ? 340 : 480);
+  const px = (n) => Math.round(Math.max(8, Math.floor(basis / n)) * 0.75);
+  const byPx = new Map();
+  for (let n = 40; n >= 4; n--) {
+    const p = px(n);
+    if (p >= 14 && p <= 48 && !byPx.has(p)) byPx.set(p, n);
+  }
+  byPx.set(px(settings.lines), settings.lines);
+  return [...byPx].sort((a, b) => a[0] - b[0]).map(([p, n]) => [n, String(p)]);
+}
+
+function toggleSettings() {
+  if ($("#settingsPanel")) return void $("#settingsPanel").remove();
+  const select = (options, value, onChange) => {
+    const s = el("select", { onchange: (e) => onChange(e.target.value) },
+      options.map(([v, label]) => el("option", { value: String(v) }, label)));
+    s.value = String(value);
+    return s;
+  };
+  const row = (key, control) => el("label", { class: "set-row" }, el("span", {}, t(key)), control);
+  const leading = LEADINGS.find((l) => Math.abs(l - settings.leading) < 0.01) ?? DEFAULTS.leading;
+  const panel = el("div", { id: "settingsPanel", role: "dialog" },
+    row("set.theme", select(
+      [["auto", t("theme.auto")], ["light", t("theme.light")], ["dark", t("theme.dark")]],
+      settings.theme, (v) => { settings.theme = v; })),
+    row("set.bg", select(
+      BACKGROUNDS.map((b) => [b, t("bg." + (b || "default"))]),
+      settings.bg, (v) => { settings.bg = v; })),
+    row("set.size", select(sizeOptions(), settings.lines, (v) => { settings.lines = Number(v); reanchor(); })),
+    row("set.leading", select(
+      LEADINGS.map((l) => [l, String(+l.toFixed(2))]),
+      leading, (v) => { settings.leading = Number(v); reanchor(); })));
+  document.body.append(panel);
+  // a press anywhere outside closes it
+  const close = (e) => {
+    if (panel.isConnected && e.target instanceof Element && e.target.closest("#settingsPanel, #settingsBtn")) return;
+    panel.remove();
+    removeEventListener("pointerdown", close, true);
+  };
+  addEventListener("pointerdown", close, true);
 }
 
 function toggleVertical() {
@@ -460,7 +480,7 @@ $("#uploadBtn").onclick = () => openUpload();
 // switch is a re-sweep plus a repaint of the JS-filled strings — never a
 // refetch: the list on screen is already the list.
 $("#langBtn").onclick = () => {
-  bwSetLang(bwOtherLang());
+  setUiLang(otherUiLang());
   applyI18n();
   if (shelfPaint) paintShelf(...shelfPaint);
 };
@@ -616,7 +636,7 @@ function showUpdateNotice(build, notes = []) {
 
 function installGuideDue() {
   try {
-    return !isStandalone() && localStorage.getItem("bw_install_seen") !== "1";
+    return !isStandalone() && localStorage.getItem("dogear_install_seen") !== "1";
   } catch {
     return false; // private mode: a guide that would nag every open stays away
   }
@@ -627,7 +647,7 @@ function installGuideDue() {
 // tell "not installed" from "installed but opened in a Safari tab", so the
 // one-time auto-offer errs quiet and the footer link stays.
 function renderInstallGuide(next) {
-  try { localStorage.setItem("bw_install_seen", "1"); } catch { /* private mode */ }
+  try { localStorage.setItem("dogear_install_seen", "1"); } catch { /* private mode */ }
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
     (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
   $("#guideIos").hidden = !ios;
@@ -675,10 +695,10 @@ async function adoptKey(key) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const { user } = await res.json();
   try {
-    if (localStorage.getItem("bw_uid") !== user)
-      localStorage.setItem("bw_settings_ts", "0");
-    localStorage.setItem("bw_key", key);
-    localStorage.setItem("bw_uid", user);
+    if (localStorage.getItem("dogear_uid") !== user)
+      localStorage.setItem("dogear_settings_ts", "0");
+    localStorage.setItem("dogear_key", key);
+    localStorage.setItem("dogear_uid", user);
   } catch { /* private mode: this session only */ }
   reauthTried = false; // a fresh success re-arms the self-heal
   return user;
@@ -699,7 +719,7 @@ function extractKey(s) {
 }
 
 function getKey() {
-  try { return localStorage.getItem("bw_key"); } catch { return null; }
+  try { return localStorage.getItem("dogear_key"); } catch { return null; }
 }
 
 // A 401 with a stored key means the cookie is missing or evicted — re-post
@@ -720,7 +740,7 @@ async function whoami() {
     const res = await fetch("/api/auth");
     if (!res.ok) return null;
     const { user } = await res.json();
-    if (user) { try { localStorage.setItem("bw_uid", user); } catch { /* private mode */ } }
+    if (user) { try { localStorage.setItem("dogear_uid", user); } catch { /* private mode */ } }
     return user;
   } catch { return null; }
 }
@@ -774,7 +794,7 @@ function brand() {
 // URLs — with keys there is nothing to mint: a device with no id simply is
 // not enrolled yet, and callers treat null as exactly that.
 function getUid() {
-  try { return localStorage.getItem("bw_uid"); } catch { return null; }
+  try { return localStorage.getItem("dogear_uid"); } catch { return null; }
 }
 
 async function renderLibrary() {
@@ -789,7 +809,7 @@ async function renderLibrary() {
   // With nothing local to show, the network is the only answer: uncapped,
   // behind a loading line.
   let cached = null;
-  try { cached = JSON.parse(localStorage.getItem("bw_books")); } catch { /* ignore */ }
+  try { cached = JSON.parse(localStorage.getItem("dogear_books")); } catch { /* ignore */ }
   const haveCached = Array.isArray(cached);
   if (haveCached) paintShelf(cached, { uid, stale: false });
   else renderMessage(brand(), t("lib.loading"));
@@ -817,10 +837,10 @@ async function renderLibrary() {
     // a new browser profile with the key re-entered elsewhere): recover it
     if (!uid) uid = await whoami();
     try {
-      localStorage.setItem("bw_books", JSON.stringify(books));
+      localStorage.setItem("dogear_books", JSON.stringify(books));
       // seed the slug → id map from the shelf, so opening a book for the
       // first time on an underground train still knows where to look
-      for (const b of books) if (b.id) localStorage.setItem(`bw_book_${b.slug}`, b.id);
+      for (const b of books) if (b.id) localStorage.setItem(`dogear_book_${b.slug}`, b.id);
     } catch { /* full */ }
   } catch (err) {
     // offline, capped, or a dead API: the painted cache stands, marked
@@ -878,7 +898,7 @@ async function onUploadFile(e) {
     $("#upTitle").value = book.title;
     $("#upAuthor").value = book.author ?? "";
     const chars = book.pieces.reduce((n, p) => n + p.body.length, 0);
-    const known = (() => { try { return JSON.parse(localStorage.getItem("bw_books")) ?? []; } catch { return []; } })();
+    const known = (() => { try { return JSON.parse(localStorage.getItem("dogear_books")) ?? []; } catch { return []; } })();
     $("#upSummary").textContent = [
       t("up.summary", book.pieces.length, chars),
       book.headingCount < 3 ? t("up.noHeadings") : "",
@@ -895,9 +915,9 @@ async function onUploadFile(e) {
 // (a 20 s cache), which would make a just-finished book vanish. Keep it for 2 minutes.
 function withRecentUploads(books) {
   let recent = [];
-  try { recent = JSON.parse(localStorage.getItem("bw_uploaded")) ?? []; } catch { /* ignore */ }
+  try { recent = JSON.parse(localStorage.getItem("dogear_uploaded")) ?? []; } catch { /* ignore */ }
   recent = recent.filter((b) => Date.now() - b.at < 120_000);
-  try { localStorage.setItem("bw_uploaded", JSON.stringify(recent)); } catch { /* full */ }
+  try { localStorage.setItem("dogear_uploaded", JSON.stringify(recent)); } catch { /* full */ }
   return [...books, ...recent.filter((r) => !books.some((b) => b.id === r.id)).map(({ at, ...b }) => b)];
 }
 
@@ -944,7 +964,7 @@ async function startUpload() {
     await fetch("/api/upload-cleanup", { method: "POST" }).catch(() => {}); // best effort
     const { piecesToEntries, buildManifest, newBookId, shortSlug } = await import("/split-core.mjs");
     const entries = piecesToEntries(book.pieces);
-    const known = (() => { try { return JSON.parse(localStorage.getItem("bw_books")) ?? []; } catch { return []; } })();
+    const known = (() => { try { return JSON.parse(localStorage.getItem("dogear_books")) ?? []; } catch { return []; } })();
     const id = newBookId();
     failedUploadId = id; // cleared again on success
     const manifest = {
@@ -988,9 +1008,9 @@ async function startUpload() {
       chapters: entries.length, totalChars: manifest.totalChars,
     };
     try {
-      localStorage.setItem("bw_books", JSON.stringify([...known, added]));
-      localStorage.setItem(`bw_book_${manifest.slug}`, id);
-      localStorage.setItem("bw_uploaded", JSON.stringify([{ ...added, at: Date.now() }]));
+      localStorage.setItem("dogear_books", JSON.stringify([...known, added]));
+      localStorage.setItem(`dogear_book_${manifest.slug}`, id);
+      localStorage.setItem("dogear_uploaded", JSON.stringify([{ ...added, at: Date.now() }]));
     } catch { /* full */ }
     failedUploadId = null;
     pendingBook = null;
@@ -1025,7 +1045,7 @@ let shelfPaint = null;
 function overlayLocalProgress(books) {
   return books.map((b) => {
     let local = null;
-    try { local = JSON.parse(localStorage.getItem(`bw_prog_${b.id}`)); } catch { /* ignore */ }
+    try { local = JSON.parse(localStorage.getItem(`dogear_prog_${b.id}`)); } catch { /* ignore */ }
     if (!local || !(local.at > (b.progress?.updatedAt ?? 0))) return b;
     return { ...b, progress: { chapter: local.chapter, pct: local.pct, updatedAt: local.at } };
   });
@@ -1355,7 +1375,7 @@ function b64uDecode(s) {
 
 // Force-refresh: drop the app-shell caches and the service worker, then
 // reload from the network — the iPhone-friendly hard reload. Per-book
-// offline chapter caches (bw-book-*) are deliberately kept.
+// offline chapter caches (dogear-book-*) are deliberately kept.
 async function forceRefresh() {
   if (navigator.onLine === false && !confirm(t("lib.refreshOffline"))) return;
   try {
@@ -1379,7 +1399,7 @@ async function forceRefresh() {
     await Promise.all(regs.map((r) => r.unregister()));
     if ("caches" in window) {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k.startsWith("bw-shell-")).map((k) => caches.delete(k)));
+      await Promise.all(keys.filter((k) => k.startsWith("dogear-shell-")).map((k) => caches.delete(k)));
     }
   } catch { /* reload anyway */ }
   // back to the shelf (the refresh lives there); r= busts intermediary HTML caches
@@ -1403,7 +1423,7 @@ function assetUrl(id, file, v) {
 }
 
 function posKey() {
-  return `bw_pos_${state.id}_${state.uid}`;
+  return `dogear_pos_${state.id}_${state.uid}`;
 }
 
 // slug (from the URL) → the id the book is stored under. Books published
@@ -1419,7 +1439,7 @@ async function resolveBookId(slug) {
     if (res.ok) {
       const book = (await res.json()).book;
       if (book?.id) {
-        try { localStorage.setItem(`bw_book_${slug}`, book.id); } catch { /* full */ }
+        try { localStorage.setItem(`dogear_book_${slug}`, book.id); } catch { /* full */ }
         return book.id;
       }
     }
@@ -1431,7 +1451,7 @@ async function resolveBookId(slug) {
 // every book on the shelf, so opening one costs no extra round trip.
 function cachedBookId(slug) {
   try {
-    return localStorage.getItem(`bw_book_${slug}`);
+    return localStorage.getItem(`dogear_book_${slug}`);
   } catch {
     return null; // private mode
   }
@@ -1439,10 +1459,10 @@ function cachedBookId(slug) {
 
 // The slug the reader last actually showed — what "/" resumes. Written only
 // after a manifest loads, so a typo'd URL can never become the book every
-// reopen runs into. The slug→id map (bw_book_<slug>) survives alongside it,
+// reopen runs into. The slug→id map (dogear_book_<slug>) survives alongside it,
 // which is what keeps the resume working offline and across a rename.
 function lastBook() {
-  try { return localStorage.getItem("bw_last_book"); } catch { return null; }
+  try { return localStorage.getItem("dogear_last_book"); } catch { return null; }
 }
 
 async function initReader(slug) {
@@ -1502,7 +1522,7 @@ async function initReader(slug) {
     // a resumed slug the server disowns (deleted, renamed away) must not
     // wedge every "/" open into this page — forget it and offer the shelf
     try {
-      if (lastBook() === slug) localStorage.removeItem("bw_last_book");
+      if (lastBook() === slug) localStorage.removeItem("dogear_last_book");
     } catch { /* private mode */ }
     return renderMessage(t("err.notFoundTitle"), [
       t("err.notFoundBody", slug),
@@ -1520,7 +1540,7 @@ async function initReader(slug) {
     manifest.title = state.hant(manifest.title);
     for (const c of manifest.chapters) c.title = state.hant(c.title);
   }
-  try { localStorage.setItem("bw_last_book", slug); } catch { /* private mode */ }
+  try { localStorage.setItem("dogear_last_book", slug); } catch { /* private mode */ }
   state.cum = manifest.chapters.reduce((acc, c) => {
     acc.push((acc[acc.length - 1] ?? 0) + c.chars);
     return acc;
@@ -1540,6 +1560,7 @@ async function initReader(slug) {
 
   wireReaderEvents();
   applyWakeLock(); // the reader is where 恆亮 applies
+  showTapZones();
 }
 
 // Once per page load, not once per initReader. initReader RE-ENTERS today —
@@ -1756,24 +1777,19 @@ function buildReaderShell() {
       el("button", { id: "offlineBtn", class: "iconbtn" + (offlineExplicit() ? " active" : ""), title: t("ui.offlineCache"), onclick: toggleOffline }, "⇣"),
       // ids, not titles, are what the e2e suites click: the titles move with
       // the interface language now
-      el("button", { id: "fontDownBtn", class: "iconbtn", title: t("ui.smaller"), onclick: () => setFont(-2) }, "A−"),
-      el("button", { id: "fontUpBtn", class: "iconbtn", title: t("ui.larger"), onclick: () => setFont(2) }, "A+"),
+      el("button", { id: "settingsBtn", class: "iconbtn", title: t("ui.settings"), onclick: toggleSettings }, "Aa"),
       "wakeLock" in navigator
         ? el("button", { id: "wakeBtn", class: "iconbtn" + (wakeOn() ? " active" : ""), title: t("ui.wake"), onclick: toggleWake }, "☀")
         : null,
-      el("button", { id: "themeBtn", class: "iconbtn", title: t("ui.theme"), onclick: cycleTheme }, "◐"),
-      el("button", { id: "bgBtn", class: "iconbtn" + (settings.bg ? " active" : ""), title: t("ui.bg", bgName()), onclick: cycleBg }, "🎨"),
-      el("button", { id: "leadBtn", class: "iconbtn", title: t("ui.leading", settings.leading.toFixed(2)), onclick: cycleLeading }, "↕"),
       el("button", { id: "marksBtn", class: "iconbtn", title: t("ui.marks"), onclick: toggleMarks }, "🔖")),
     // #pagebox is the page frame: in 直排 it owns the margins and clips at
     // the page edge, so a column can never be sliced (see applyGrid)
     el("div", { id: "pagebox" }, el("main", { id: "content" })),
-    // next sits on the LEFT: vertical-rl text reads right-to-left, so
-    // forward motion is leftward and the buttons should match
+    // previous on the left, next on the right, as in any left-to-right UI
     el("footer", { class: "botnav" },
-      el("button", { id: "nextBtn", onclick: () => nav(1) }, t("ui.next")),
+      el("button", { id: "prevBtn", onclick: () => nav(-1) }, t("ui.prev")),
       el("div", { class: "progress", id: "progress" }),
-      el("button", { id: "prevBtn", onclick: () => nav(-1) }, t("ui.prev"))),
+      el("button", { id: "nextBtn", onclick: () => nav(1) }, t("ui.next"))),
     el("div", { id: "toc", class: "toc", hidden: true }),
     el("div", { id: "marks", class: "toc", hidden: true }),
   );
@@ -1909,10 +1925,10 @@ const OFFLINE_AHEAD_IMPLICIT = 5;
 // pulled off a stranger's server in one burst, so the ⇣ keeps fewer
 const OFFLINE_AHEAD_ONLINE = 10;
 
-const offlineKey = (id) => `bw_offline_${id}`;
+const offlineKey = (id) => `dogear_offline_${id}`;
 const offlineEnabled = (id = state.id) => localStorage.getItem(offlineKey(id)) !== "0";
 const offlineExplicit = (id = state.id) => localStorage.getItem(offlineKey(id)) === "1";
-const bookCacheName = (id = state.id) => `bw-book-${id}`;
+const bookCacheName = (id = state.id) => `dogear-book-${id}`;
 
 function setOffline(id, on) {
   try { localStorage.setItem(offlineKey(id), on ? "1" : "0"); } catch { /* private mode */ }
@@ -1982,7 +1998,7 @@ async function fillOfflineWindow(id, manifest, idx, alive = () => true) {
 }
 
 // How many chapters of a book this device actually holds. caches.open() would
-// CREATE the cache, and an empty bw-book-<id> is not harmless: the service
+// CREATE the cache, and an empty dogear-book-<id> is not harmless: the service
 // worker takes its existence as "this book is kept offline" and starts
 // stashing manifests for it. So ask caches.has() first.
 async function cachedChapters(id) {
@@ -2290,7 +2306,7 @@ const plog = (() => {
   const ua = navigator.userAgent;
   const device = (/iPhone|iPad|iPod/.test(ua) ? "ios" : /Android/.test(ua) ? "android" : "desktop")
     + (matchMedia("(display-mode: standalone)").matches || navigator.standalone ? "-pwa" : "");
-  const on = () => { try { return localStorage.getItem("bw_testlog") !== "0"; } catch { return true; } };
+  const on = () => { try { return localStorage.getItem("dogear_testlog") !== "0"; } catch { return true; } };
   const flush = () => {
     timer = 0;
     if (!buf.length) return;
@@ -2521,14 +2537,14 @@ function syncFlash() {
 }
 
 // ---------- settings sync (mirrors the position sync above) ----------
-// bw_settings_ts = ms epoch of the last local change (or the server
+// dogear_settings_ts = ms epoch of the last local change (or the server
 // updatedAt after a server-wins reconcile); LWW arbitrates across devices.
 
 let settingsDirty = false;
 let settingsTimer = 0;
 
 function settingsChanged() {
-  try { localStorage.setItem("bw_settings_ts", String(Date.now())); } catch { /* private mode */ }
+  try { localStorage.setItem("dogear_settings_ts", String(Date.now())); } catch { /* private mode */ }
   settingsDirty = true;
   if (!settingsTimer) settingsTimer = setTimeout(() => flushSettings(), 2000);
 }
@@ -2536,7 +2552,7 @@ function settingsChanged() {
 async function flushSettings(useBeacon = false) {
   if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = 0; }
   if (!settingsDirty) return;
-  const uid = state.uid ?? localStorage.getItem("bw_uid");
+  const uid = state.uid ?? localStorage.getItem("dogear_uid");
   if (!uid) return;
   const body = JSON.stringify({
     user: uid,
@@ -2544,7 +2560,7 @@ async function flushSettings(useBeacon = false) {
       fontSize: settings.fontSize, vertical: settings.vertical, bg: settings.bg,
       leading: Number(settings.leading.toFixed(3)),
     },
-    updatedAt: Number(localStorage.getItem("bw_settings_ts")) || Date.now(),
+    updatedAt: Number(localStorage.getItem("dogear_settings_ts")) || Date.now(),
   });
   settingsDirty = false;
   if (useBeacon && navigator.sendBeacon) {
@@ -2574,7 +2590,7 @@ async function flushSettings(useBeacon = false) {
 // after openChapter, a vertical/fontSize change must redo the toggleVertical
 // dance: reset both scrollers, then restoreScroll(state.off).
 async function resolveSettings(uid) {
-  const localTs = Number(localStorage.getItem("bw_settings_ts")) || 0;
+  const localTs = Number(localStorage.getItem("dogear_settings_ts")) || 0;
   let remote = null;
   try {
     // capped for the same reason as the position, and safe for the same
@@ -2589,24 +2605,24 @@ async function resolveSettings(uid) {
     // server wins — write the mirrors directly, NOT via the setters (a
     // setter would bump the ts and re-push what we just received)
     try {
-      localStorage.setItem("bw_font", String(remote.settings.fontSize));
-      localStorage.setItem("bw_vertical", remote.settings.vertical ? "1" : "0");
-      localStorage.setItem("bw_bg", remote.settings.bg); // "" = explicit 預設
+      localStorage.setItem("dogear_font", String(remote.settings.fontSize));
+      localStorage.setItem("dogear_vertical", remote.settings.vertical ? "1" : "0");
+      localStorage.setItem("dogear_bg", remote.settings.bg); // "" = explicit 預設
       if (typeof remote.settings.leading === "number")
-        localStorage.setItem("bw_leading", String(remote.settings.leading));
-      localStorage.setItem("bw_settings_ts", String(remote.updatedAt));
+        localStorage.setItem("dogear_leading", String(remote.settings.leading));
+      localStorage.setItem("dogear_settings_ts", String(remote.updatedAt));
     } catch { /* private mode: applied for this session only */ }
     applySettings();
     return;
   }
-  const hasLocal = ["bw_font", "bw_vertical", "bw_bg"]
+  const hasLocal = ["dogear_font", "dogear_vertical", "dogear_bg"]
     .some((k) => localStorage.getItem(k) !== null);
   if (hasLocal && (!remote || localTs > remote.updatedAt)) {
     // local newer, or the server has no row yet and this device has explicit
     // values — push up. Legacy devices (settings pre-date the sync feature,
     // no ts) claim now as their baseline.
     if (!localTs) {
-      try { localStorage.setItem("bw_settings_ts", String(Date.now())); } catch { /* ok */ }
+      try { localStorage.setItem("dogear_settings_ts", String(Date.now())); } catch { /* ok */ }
     }
     settingsDirty = true;
     flushSettings();
@@ -2620,7 +2636,7 @@ function updateProgress() {
   // the shelf reads this back, so it shows where you stopped without waiting
   // for the server copy (see overlayLocalProgress)
   try {
-    localStorage.setItem(`bw_prog_${state.id}`, JSON.stringify({ chapter: state.idx, pct, at: Date.now() }));
+    localStorage.setItem(`dogear_prog_${state.id}`, JSON.stringify({ chapter: state.idx, pct, at: Date.now() }));
   } catch { /* full or private mode */ }
   $("#progress")?.replaceChildren(
     el("span", { id: "syncdot", class: "syncdot " + syncState, title: t("sync." + syncState) }),
@@ -2698,7 +2714,7 @@ let lastTouchTap = 0;
 // owner's 402×874 @3x phone (460 ppi ÷ 3 ≈ 153 px per inch), and iPhones
 // span 153–163 px per inch, so the band is 5.0–5.3 mm on any of them.
 const EDGE_BAND_PX = 30;
-const TOUCH_CONTROLS = "a, button, input, select, textarea, .topbar, .botnav, .playerbar, .toc, .jumpnote";
+const TOUCH_CONTROLS = "a, button, input, select, textarea, label, .topbar, .botnav, .playerbar, .toc, .jumpnote, #settingsPanel";
 function inEdgeBand(e) {
   const p = e.changedTouches[0];
   if (!p || !$("#content") || document.querySelector("#app > section:not([hidden])")) return false;
@@ -2741,14 +2757,46 @@ function onTap(e) {
   handleTap(e.clientX, e.clientY, e.target);
 }
 
+// The screen is a 3×3 grid. The centre cell shows/hides the bars, the cell
+// under it goes back a page, and every other cell goes forward — going back is
+// rare, so it gets the small target. The hint showTapZones draws uses the same
+// geometry in CSS (#tapzones .tz-*); change both together.
+function tapZone(x, y) {
+  const col = Math.min(2, Math.floor(x * 3));
+  const row = Math.min(2, Math.floor(y * 3));
+  if (col === 1 && row === 1) return "menu";
+  if (col === 1 && row === 2) return "prev";
+  return "next";
+}
+
 function handleTap(cx, cy, target) {
-  if (!(target instanceof Element) || target.closest("a, button, .topbar, .botnav, .playerbar, .toc")) return;
+  if (!(target instanceof Element) || target.closest("a, button, label, .topbar, .botnav, .playerbar, .toc, #settingsPanel")) return;
   if (getSelection()?.toString()) return; // finishing a text selection, not a tap
-  const x = cx / innerWidth;
-  const y = cy / innerHeight;
-  if (x > 1 / 3 && x < 2 / 3 && y > 1 / 3 && y < 2 / 3)
-    document.documentElement.toggleAttribute("data-bars");
-  else if (y >= 0.5) pageScroll(x < 0.5 ? 1 : -1);
+  const zone = tapZone(cx / innerWidth, cy / innerHeight);
+  if (zone === "menu") document.documentElement.toggleAttribute("data-bars");
+  else pageScroll(zone === "next" ? 1 : -1);
+}
+
+// On a touch screen, show where the tap zones are for a moment when a book
+// opens (and drop the hint at the first touch). A pointer:coarse device has no
+// hover to discover them with, and nothing on the page says the screen is
+// divided at all.
+function showTapZones() {
+  if (!matchMedia("(pointer: coarse)").matches) return;
+  $("#tapzones")?.remove();
+  const zone = (cls, key) => el("div", { class: `tz ${cls}` }, el("span", {}, t(key)));
+  // "next" is every cell but two, so one green wash with the label repeated
+  const box = el("div", { id: "tapzones", "aria-hidden": "true" },
+    el("div", { class: "tz tz-next" }),
+    zone("tz-top", "zones.next"), zone("tz-left", "zones.next"), zone("tz-right", "zones.next"),
+    zone("tz-prev", "zones.prev"), zone("tz-menu", "zones.menu"));
+  document.body.append(box);
+  const hide = () => {
+    box.classList.add("off");
+    setTimeout(() => box.remove(), 400);
+  };
+  addEventListener("touchstart", hide, { capture: true, once: true, passive: true });
+  setTimeout(hide, 2500);
 }
 
 
@@ -2845,13 +2893,13 @@ function toggleToc() {
 
 const readMarks = (book) => {
   try {
-    return JSON.parse(localStorage.getItem(`bw_marks_${book}`)) ?? { marks: [], ts: 0, dirty: false };
+    return JSON.parse(localStorage.getItem(`dogear_marks_${book}`)) ?? { marks: [], ts: 0, dirty: false };
   } catch {
     return { marks: [], ts: 0, dirty: false };
   }
 };
 const saveMarks = (book, rec) => {
-  try { localStorage.setItem(`bw_marks_${book}`, JSON.stringify(rec)); } catch { /* private mode */ }
+  try { localStorage.setItem(`dogear_marks_${book}`, JSON.stringify(rec)); } catch { /* private mode */ }
 };
 
 let marksTimer = 0;

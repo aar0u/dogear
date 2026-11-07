@@ -43,7 +43,7 @@ async function keyMatches(env, candidate) {
 function readerKey(request, url) {
   const header = request.headers.get("x-reader-key");
   if (header) return header;
-  const m = (request.headers.get("cookie") ?? "").match(/(?:^|;\s*)bw_key=([^;]+)/);
+  const m = (request.headers.get("cookie") ?? "").match(/(?:^|;\s*)dogear_key=([^;]+)/);
   if (m) return decodeURIComponent(m[1]);
   return url.searchParams.get("key");
 }
@@ -70,7 +70,7 @@ async function handleAuth(request, env, url, who) {
   // Secure only on https: a Secure cookie is dropped on plain-http wrangler dev
   const secure = url.protocol === "https:" ? "; Secure" : "";
   return json({ ok: true, user: USER, label: "" }, 200, {
-    "set-cookie": `bw_key=${encodeURIComponent(key)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly${secure}`,
+    "set-cookie": `dogear_key=${encodeURIComponent(key)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly${secure}`,
     "cache-control": "no-store",
   });
 }
