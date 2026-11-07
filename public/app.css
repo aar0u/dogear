@@ -174,8 +174,10 @@ button {
   /* the real size and line height are set inline by applyGrid */
   font-size: 24px;
   line-height: calc(4 / 3);
-  /* Subpixel positioning, no pixel-snapping of glyph outlines: on a 1x Windows
-     screen the default hinting turns LXGW WenKai's brush strokes thick and hard. */
+  /* Draw the glyphs at their exact outlines, with no grid-fitting. On Windows
+     at 1x a stroke that straddles two pixel rows (the bottom stroke of 地 at
+     22 px) was snapped to two full rows and came out thicker than its
+     neighbours; macOS does not do this. */
   text-rendering: geometricPrecision;
   /* anchor + stacking context for #ttsHl, whose z-index -1 must sit behind
      the glyphs but still above the page background */
