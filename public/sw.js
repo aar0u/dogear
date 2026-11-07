@@ -1,4 +1,4 @@
-// Bookworm service worker: offline support.
+// dogear service worker: offline support.
 //
 // - app shell (/, app.css, app.js, player.mjs, tts-core.mjs) — network-first
 //   with a short timeout, cache fallback: the page opens with no (or a
@@ -25,7 +25,7 @@
 // this cache and their URLs are unversioned — bump the shell version
 // whenever any of them changes, or installed devices keep the old asset
 // forever.
-const SHELL = "bw-shell-v25"; // v25: wasmtts v2.6.0 engine files
+const SHELL = "bw-shell-v33"; // v33: page turn = visible lines minus two
 // The offline TTS engine's big binaries live in their own bw-wasmtts cache
 // (the synth worker's) and ort's wasm in bw-wasmtts-rt (above), but every
 // same-origin file the engine loads by URL rides the shell: the worker
@@ -187,7 +187,7 @@ self.addEventListener("push", (e) => {
   e.waitUntil((async () => {
     let shown = "ok";
     try {
-      await self.registration.showNotification(d.title ?? "Bookworm", {
+      await self.registration.showNotification(d.title ?? "dogear", {
         body: d.body ?? "",
         data: { url: d.url ?? "/" },
       });

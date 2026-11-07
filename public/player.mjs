@@ -247,9 +247,43 @@ function ensureAudio() {
 // The two elements swap roles as chunks advance and share these handlers;
 // events from whichever is standby are ignored, except a failed preload,
 // which drops the preload so playChunk falls back to a fresh load.
+// ---------- speaking speed ----------
+//
+// Every engine plays through an HTMLAudioElement, so the speed is the elements'
+// playbackRate (pitch preserved), kept per device. A new src resets
+// playbackRate to defaultPlaybackRate, so both are set.
+const RATES = [0.8, 1, 1.2, 1.5, 1.8, 2];
+const audios = new Set();
+const ttsRate = () => {
+  const v = Number(localStorage.getItem("bw_tts_rate"));
+  return RATES.includes(v) ? v : 1;
+};
+
+function trackAudio(a) {
+  audios.add(a);
+  a.defaultPlaybackRate = ttsRate();
+  a.playbackRate = ttsRate();
+  a.preservesPitch = true;
+}
+
+function cycleRate() {
+  const next = RATES[(RATES.indexOf(ttsRate()) + 1) % RATES.length];
+  try { localStorage.setItem("bw_tts_rate", String(next)); } catch { /* private mode: this session only */ }
+  for (const a of audios) {
+    a.defaultPlaybackRate = next;
+    a.playbackRate = next;
+  }
+  const btn = $("#rateBtn");
+  if (btn) {
+    btn.textContent = `${next}×`;
+    btn.title = t("player.rate", next);
+  }
+}
+
 function makeAudio() {
   const a = new Audio();
   a.preload = "auto";
+  trackAudio(a);
   const msn = ("mediaSession" in navigator) ? navigator.mediaSession : null;
   const active = (fn) => () => { if (a === player.audio) fn(); };
   a.addEventListener("playing", active(() => {
@@ -464,6 +498,7 @@ function ensureStreamEl() {
   if (stream.el) return;
   const a = new Audio();
   a.preload = "auto";
+  trackAudio(a);
   // ManagedMediaSource only engages with remote playback disabled — giving
   // up AirPlay for narration that survives the lock screen
   a.disableRemotePlayback = true;
@@ -1121,47 +1156,12 @@ function buildPlayerBar() {
       // ids, not titles, are what the e2e suites click (titles follow the UI language)
       el("button", { class: "iconbtn", id: "backBtn", title: t("player.back"), onclick: () => advanceChunk(-1) }, "⏮"),
       el("button", { class: "iconbtn", id: "fwdBtn", title: t("player.forward"), onclick: () => advanceChunk(1) }, "⏭"),
-      el("button", { class: "iconbtn", id: "reportBtn", title: t("player.report"), onclick: reportHere }, "🚩"),
+      el("button", { class: "iconbtn", id: "rateBtn", title: t("player.rate", ttsRate()), onclick: cycleRate }, `${ttsRate()}×`),
       el("button", { class: "iconbtn engbtn", id: "engBtn", onclick: toggleTtsPref }, ""),
       el("div", { class: "player-status", id: "playerStatus" }, ""),
       el("button", { class: "iconbtn", title: t("player.stop"), onclick: closePlayer }, "✕")),
   );
   updatePlayerBar();
-}
-
-// 🚩 — "this bit sounded wrong", one tap, mid-listening (owner request,
-// 2026-08-15). Files book/chapter/offset/engine AND the sentence under the
-// voice right now — the same walk markSpoken paints, so the ticket names
-// exactly the marked span — to /api/testlog page=report. Once the session
-// moves on that sentence is unrecoverable, which is the whole point of the
-// button. testlog and not the 改進建議 queue because the reader page holds
-// the bw_tlog cookie; the admin Bearer never leaves /admin. A plain fetch,
-// not wlog: the tap deserves an ack, and the flight recorder's batching
-// would eat both the ack and (on the online engines) the line itself.
-async function reportHere() {
-  const c = player.chunks[ttsCore.chunkIndexFor(player.chunks, state.off)];
-  let sentence = "";
-  if (c) {
-    const i = Math.max(0, Math.min(state.off - c.start, c.chars - 1));
-    sentence = c.text
-      .slice(ttsCore.sentenceStartFor(c.text, i), ttsCore.sentenceEndFor(c.text, i))
-      .trim().slice(0, 160);
-  }
-  const engine = useWasm() ? "wasm" : stream.ms ? "stream" : "chain";
-  const title = state.manifest?.chapters?.[player.chapIdx]?.title ?? "";
-  let device = "";
-  try { device = localStorage.getItem("bw_uid") ?? ""; } catch { /* private mode */ }
-  const data = `🚩 ${state.manifest?.title ?? state.id} ch${player.chapIdx}`
-    + `${title ? `〈${title}〉` : ""} off${state.off} 引擎=${engine} 句=「${sentence}」`;
-  try {
-    const res = await fetch("/api/testlog", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ page: "report", device, data }),
-    });
-    flashStatus(res.ok ? t("player.reported") : t("player.reportFail"));
-  } catch {
-    flashStatus(t("player.reportFail"));
-  }
 }
 
 // Park a transient message where the chunk counter sits; the next real
@@ -1248,7 +1248,7 @@ function setMediaSession() {
   ms.metadata = new MediaMetadata({
     title: state.manifest.chapters[player.chapIdx]?.title ?? "",
     artist: state.manifest.title,
-    album: "Bookworm",
+    album: "dogear",
   });
   ms.setActionHandler("play", playerPlayPause);
   ms.setActionHandler("pause", playerPlayPause);

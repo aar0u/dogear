@@ -250,7 +250,10 @@ function gridAvail() {
 function gridPitch(avail) {
   if (settings.vertical && innerHeight >= innerWidth && avail > 0)
     settings.calibWidth = avail;
-  const basis = settings.calibWidth || Math.min(innerWidth, innerHeight);
+  // The size is "每頁行數 across a phone-width page", so on a desktop window (whose
+  // shorter side is ~1000 px) it would come out at 70+ px. Cap the basis there.
+  const raw = settings.calibWidth || Math.min(innerWidth, innerHeight);
+  const basis = Math.min(raw, innerWidth > 700 ? 340 : 480);
   // 字級 comes from 每頁行數 at the default spacing; 行距 is that times the
   // chosen leading, so changing the leading moves the lines apart without
   // resizing the text.
@@ -362,7 +365,7 @@ let syncState = "ok"; // ok | pending | err
 // ---------- boot / routing ----------
 
 applySettings();
-console.log("bookworm build " + BUILD); // visible on any route via remote inspector
+console.log("dogear build " + BUILD); // visible on any route via remote inspector
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 // installed app: ask for durable storage up front — the shell + font caches
 // deserve evict-last even before any offline book (the offline toggle also
@@ -725,7 +728,7 @@ async function whoami() {
 // shell can load. Reached only after reauth() failed — by then the stored
 // key (if any) is genuinely dead, not merely a lost cookie.
 function renderKeyGate(retry, failed = false) {
-  document.title = "Bookworm";
+  document.title = "dogear";
   $("#gateLead").textContent = t(failed ? "auth.bad" : "auth.need");
   $("#keyInput").placeholder = t("auth.placeholder");
   $("#keyMsg").textContent = "";
@@ -760,7 +763,7 @@ function renderMessage(title, children = []) {
 // bound to a const is still in its temporal dead zone when the first call
 // lands.
 function brand() {
-  return el("span", { class: "brand" }, "Bookworm");
+  return el("span", { class: "brand" }, "dogear");
 }
 
 // ---------- library ----------
@@ -774,7 +777,7 @@ function getUid() {
 }
 
 async function renderLibrary() {
-  document.title = "Bookworm";
+  document.title = "dogear";
   let uid = getUid();
   // fire-and-forget: no settings UI here, so a late server-wins repaint is
   // purely cosmetic (paper color / theme vars on the library chrome)
@@ -1324,7 +1327,7 @@ async function initReader(slug) {
     acc.push((acc[acc.length - 1] ?? 0) + c.chars);
     return acc;
   }, []);
-  document.title = `${manifest.title} · Bookworm`;
+  document.title = `${manifest.title} · dogear`;
 
   if (offlineEnabled()) persistStorage();
   // settings reconcile rides along with the position fetch — both must land
@@ -2105,11 +2108,12 @@ let scrollTick = 0;
 let lastScrollEvent = 0;
 function onScroll() {
   lastScrollEvent = Date.now();
-  // paged reading: a free pan is allowed to move, but it must SETTLE on a
-  // page — "捲動要嘛一頁、要嘛不動" (user 07-28). Scheduled on every scroll
-  // and re-armed while a finger is still down or our own slide is running.
-  clearTimeout(snapTick);
-  snapTick = setTimeout(snapToPage, 180);
+  // 直排 only: a free pan must SETTLE on a page. 橫排 scrolls naturally —
+  // snapping there fought the wheel and trackpad with a second animation.
+  if (settings.vertical) {
+    clearTimeout(snapTick);
+    snapTick = setTimeout(snapToPage, 180);
+  }
   if (scrollTick) return;
   scrollTick = setTimeout(() => { scrollTick = 0; trackScroll(); }, 400);
 }
@@ -2389,13 +2393,18 @@ function onKey(e) {
   // TOC list is a column of them
   if (e.target instanceof Element && e.target.closest("input, textarea, select, button, a")) return;
   // also keeps the lookup below off Object.prototype
-  if (e.key !== " " && !e.key.startsWith("Arrow")) return;
+  if (e.key !== " " && e.key !== "PageDown" && e.key !== "PageUp" && !e.key.startsWith("Arrow")) return;
+  // 橫排: Space/PageDown/PageUp turn a page, ←/→ change chapter; ↑/↓ are
+  // left to the browser, so they scroll naturally a few lines at a time
   const KEYS = settings.vertical
     ? { ArrowLeft: ["page", 1], ArrowRight: ["page", -1],
         ArrowDown: ["chap", 1], ArrowUp: ["chap", -1] }
-    : { ArrowDown: ["page", 1], ArrowUp: ["page", -1],
-        ArrowRight: ["chap", 1], ArrowLeft: ["chap", -1] };
-  const [what, d] = (e.key === " " ? ["page", 1] : KEYS[e.key]) ?? [];
+    : { ArrowRight: ["chap", 1], ArrowLeft: ["chap", -1] };
+  const [what, d] =
+    e.key === " " ? ["page", e.shiftKey ? -1 : 1]
+    : e.key === "PageDown" ? ["page", 1]
+    : e.key === "PageUp" ? ["page", -1]
+    : KEYS[e.key] ?? [];
   if (!what) return;
   e.preventDefault();
   if (what === "page") pageScroll(d);
@@ -2484,6 +2493,20 @@ function handleTap(cx, cy, target) {
 // chapter — forward to the next one's beginning, backward to the previous
 // one's END (so paging back reads naturally across the boundary).
 let lastPageTurn = 0;
+// 橫排 page turn distance: every whole line that is actually visible, less
+// PAGE_OVERLAP_LINES, so the last lines you read are still on screen as
+// context. The bars and the player pill are overlays that cover text while
+// they show, so their height is not counted as visible.
+const PAGE_OVERLAP_LINES = 2;
+function readStep() {
+  const covered = (sel) => {
+    const e = $(sel);
+    return e && getComputedStyle(e).display !== "none" ? e.getBoundingClientRect().height : 0;
+  };
+  const clear = innerHeight - covered(".topbar") - Math.max(covered(".botnav"), covered(".playerbar"));
+  return Math.max(1, Math.floor(clear / GRID.pitch) - PAGE_OVERLAP_LINES) * GRID.pitch;
+}
+
 function pageScroll(d) {
   // mid-open the placeholder has no size, which reads as "at the chapter
   // edge" — without this, every tap during a slow load chained another nav
@@ -2507,6 +2530,13 @@ function pageScroll(d) {
   // the final page is clamped short of its own page point (the chapter
   // simply ends there), so paging back off it must count UP to the page
   // it overlaps, not round down into the page before that
+  // 橫排: one page is exactly one page of travel from where the text is now,
+  // jumped to with no animation — the page keeps whatever line alignment the
+  // reader scrolled to, and nothing glides to collide with the next input
+  if (!settings.vertical) {
+    scrollTo(0, Math.min(end, Math.max(0, base + d * readStep())));
+    return;
+  }
   const k = base >= end - 2
     ? Math.ceil(base / pageStep())
     : Math.round(base / pageStep());

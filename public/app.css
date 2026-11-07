@@ -167,7 +167,9 @@ button {
    the bars are transient overlays, so that was a page's worth of dead
    space; it now only clears the home indicator, same call as 直排. */
 #content {
-  max-width: 42rem;
+  /* in em, so the measure follows the text size: ~36 characters a line, the
+     comfortable limit for CJK. A phone is narrower than this and fills it. */
+  max-width: 38em;
   margin: 0 auto;
   padding: calc(1.2rem + env(safe-area-inset-top)) 1.2rem max(0.8rem, env(safe-area-inset-bottom));
   font-size: var(--font-size);
