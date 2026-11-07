@@ -54,7 +54,10 @@ const BACKGROUNDS = [
 // factory defaults: light theme, 金褐 paper (sampled off the user's preferred
 // reader screenshot, #e0cb97) — a value the user ever set on this
 // device (even back to these) always wins; null means untouched
-const DEFAULTS = { theme: "light", bg: "gold-brown", size: 22, leading: 4 / 3 };
+const DEFAULTS = { theme: "light", bg: "gold-brown", size: 22, leading: 4 / 3, width: 38 };
+
+// line length choices, in em (about characters per line for CJK)
+const WIDTHS = [28, 34, 38, 46, 56];
 
 // line spacing = 行距 ÷ 字號, cycled by the ↕ button. 4/3 is the pre-existing
 // look (字級 = pitch × ¾), so the first step is the unchanged default.
@@ -78,6 +81,12 @@ const settings = {
     return v >= 1.1 && v <= 2.5 ? v : DEFAULTS.leading;
   },
   set leading(v) { localStorage.setItem("dogear_leading", String(v)); applySettings(); settingsChanged(); },
+  // Line length in em. Per-device like size: it depends on the screen.
+  get width() {
+    const v = Number(localStorage.getItem("dogear_width"));
+    return WIDTHS.includes(v) ? v : DEFAULTS.width;
+  },
+  set width(v) { localStorage.setItem("dogear_width", String(v)); applySettings(); },
   get theme() { return localStorage.getItem("dogear_theme") ?? DEFAULTS.theme; },
   set theme(v) { localStorage.setItem("dogear_theme", v); applySettings(); },
   get bg() { return localStorage.getItem("dogear_bg") ?? DEFAULTS.bg; },
@@ -137,6 +146,7 @@ function resetSettings() {
   settings.bg = DEFAULTS.bg;
   settings.size = DEFAULTS.size;
   settings.leading = DEFAULTS.leading;
+  settings.width = DEFAULTS.width;
   for (const key of ["dogear_tts", "dogear_tts_rate", "dogear_wake"]) {
     try { localStorage.removeItem(key); } catch { /* private mode */ }
   }
@@ -188,6 +198,9 @@ function toggleSettings() {
     row("set.leading", select(
       LEADINGS.map((l) => [l, String(+l.toFixed(2))]),
       leading, (v) => { settings.leading = Number(v); reanchor(); })),
+    row("set.width", select(
+      WIDTHS.map((w) => [w, t("width." + w)]),
+      settings.width, (v) => { settings.width = Number(v); reanchor(); })),
     el("div", { class: "set-links" },
       el("button", { class: "linklike", onclick: resetSettings }, t("set.reset")),
       // keyboard help is for a keyboard: not offered on a touch-only screen
@@ -230,6 +243,7 @@ function applyGrid() {
   const { font, pitch } = gridPitch();
   GRID.pitch = pitch;
   GRID.band = parseFloat(getComputedStyle(c).paddingTop);
+  c.style.maxWidth = settings.width + "em";
   c.style.fontSize = font.toFixed(2) + "px";
   c.style.lineHeight = pitch + "px";
   // paragraph gaps and the chapter head ride this, so every block's size
