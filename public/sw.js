@@ -25,7 +25,7 @@
 // this cache and their URLs are unversioned — bump the shell version
 // whenever any of them changes, or installed devices keep the old asset
 // forever.
-const SHELL = "dogear-shell-v60"; // v60: geometricPrecision text, no stroke snapping on Windows
+const SHELL = "dogear-shell-v65"; // v65: C closes the book and goes back to the shelf
 // The offline TTS engine's big binaries live in their own dogear-wasmtts cache
 // (the synth worker's) and ort's wasm in dogear-wasmtts-rt (above), but every
 // same-origin file the engine loads by URL rides the shell: the worker

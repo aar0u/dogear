@@ -188,7 +188,10 @@ function toggleSettings() {
     row("set.leading", select(
       LEADINGS.map((l) => [l, String(+l.toFixed(2))]),
       leading, (v) => { settings.leading = Number(v); reanchor(); })),
-    el("button", { class: "linklike set-reset", onclick: resetSettings }, t("set.reset")));
+    el("button", { class: "linklike set-reset", onclick: resetSettings }, t("set.reset")),
+    // keyboard help is for a keyboard: not offered on a touch-only screen
+    matchMedia("(pointer: fine)").matches
+      ? el("button", { class: "linklike set-reset", onclick: toggleHelp }, ` ${t("set.keys")}`) : null);
   document.body.append(panel);
   // a press anywhere outside closes it
   const close = (e) => {
@@ -1706,14 +1709,21 @@ function showRemoteNotice(remote) {
 // are pushed to the server NOW (the corner chip shows it) instead of waiting
 // for the 10 s timer or a beacon. Capped: an unreachable server must not trap
 // the reader — local progress is already saved and the shelf shows it.
-async function leaveToShelf(e) {
-  if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab/window: native
+async function leaveReader() {
   trackScroll(); // the 400 ms scroll throttle may not have caught the last move
-  if (!state.dirty && !settingsDirty && !readMarks(state.id).dirty) return; // nothing to push
-  e.preventDefault();
-  const cap = new Promise((resolve) => setTimeout(resolve, 6000));
-  await Promise.race([Promise.allSettled([flush(), flushSettings(), pushMarks(state.id)]), cap]);
+  if (state.dirty || settingsDirty || readMarks(state.id).dirty) {
+    const cap = new Promise((resolve) => setTimeout(resolve, 6000));
+    await Promise.race([Promise.allSettled([flush(), flushSettings(), pushMarks(state.id)]), cap]);
+  }
   location.href = "/?shelf";
+}
+
+// the shelf button: a plain click leaves through leaveReader, a modified one
+// (new tab, new window) is left to the browser
+function leaveToShelf(e) {
+  if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  return leaveReader();
 }
 
 function buildReaderShell() {
@@ -2000,6 +2010,12 @@ function loadPlayer() {
 function toggleAudio() {
   if (playerMod) return playerMod.togglePlayer();
   loadPlayer().then((m) => m.togglePlayer()).catch(() => {});
+}
+
+// Space: start the narration, or pause / resume it while it is on
+function togglePlayPause() {
+  if (playerMod) return playerMod.playPause();
+  loadPlayer().then((m) => m.playPause()).catch(() => {});
 }
 
 // Reading distance of an on-screen rect's top edge: its document y, measured
@@ -2468,29 +2484,67 @@ function nav(d, to = 0) {
   openChapter(i, to).then(() => flush());
 }
 
-// Keyboard, on a desk. Space/Shift+Space and PageDown/PageUp turn pages,
-// ←/→ change chapter, ↑/↓ scroll natively. preventDefault matters for the
-// page keys: the browser would otherwise scroll by its own distance, with its
-// own animation, on top of ours.
+// Keyboard, on a desk. One table drives both the key handler and the help
+// panel (? or the Aa panel), so what is listed is what works. `keys` are the
+// names a key event resolves to (see keyName); `show` is how they are drawn.
+// The keys listed here are cancelled, because the browser would otherwise act
+// on them too (↓ scrolls a few lines, Space a page, with its own animation).
+// Keys that are not listed — Home/End (top and bottom of the chapter),
+// PageUp/PageDown, Shift+Space — keep the browser's own scrolling.
+const SHORTCUTS = [
+  { keys: ["ArrowDown", "d", "."], show: ["↓", "D", "."], label: "kbd.nextPage", run: () => pageScroll(1) },
+  { keys: ["ArrowUp", "u", ","], show: ["↑", "U", ","], label: "kbd.prevPage", run: () => pageScroll(-1) },
+  { keys: ["Space"], show: ["Space"], label: "kbd.playPause", run: () => togglePlayPause() },
+  { keys: ["ArrowRight", ">"], show: ["→", ">"], label: "kbd.nextChapter", run: () => nav(1) },
+  { keys: ["ArrowLeft", "<"], show: ["←", "<"], label: "kbd.prevChapter", run: () => nav(-1) },
+  { keys: ["t"], show: ["T"], label: "kbd.toc", run: () => toggleToc() },
+  { keys: ["c"], show: ["C"], label: "kbd.leave", run: () => leaveReader() },
+  { keys: ["b"], show: ["B"], label: "kbd.marks", run: () => toggleMarks() },
+  { keys: ["s"], show: ["S"], label: "kbd.settings", run: () => toggleSettings() },
+  { keys: ["l"], show: ["L"], label: "kbd.listen", run: () => toggleAudio() },
+  { keys: ["f"], show: ["F"], label: "kbd.fullscreen", run: () => toggleFullscreen() },
+  { keys: ["h"], show: ["H"], label: "kbd.bars", run: () => document.documentElement.toggleAttribute("data-bars") },
+  { keys: ["?"], show: ["?"], label: "kbd.help", run: () => toggleHelp() },
+  { keys: ["Escape"], show: ["Esc"], label: "kbd.close", run: () => closePanels() },
+];
+
+// "d" for d and D, "Shift+Space" for shift and space, otherwise the key's own name
+const keyName = (e) =>
+  e.key === " " ? (e.shiftKey ? "Shift+Space" : "Space")
+  : e.key.length === 1 ? e.key.toLowerCase() : e.key;
+
 function onKey(e) {
   if (e.metaKey || e.ctrlKey || e.altKey) return; // leave browser shortcuts alone
-  // a focused control owns its own keys — space activates a button, and the
-  // TOC list is a column of them
-  if (e.target instanceof Element && e.target.closest("input, textarea, select, button, a")) return;
-  // also keeps the lookup below off Object.prototype
-  if (e.key !== " " && e.key !== "PageDown" && e.key !== "PageUp" && !e.key.startsWith("Arrow")) return;
-  // Space/PageDown/PageUp turn a page, ←/→ change chapter; ↑/↓ are left to the
-  // browser, so they scroll naturally a few lines at a time
-  const KEYS = { ArrowRight: ["chap", 1], ArrowLeft: ["chap", -1] };
-  const [what, d] =
-    e.key === " " ? ["page", e.shiftKey ? -1 : 1]
-    : e.key === "PageDown" ? ["page", 1]
-    : e.key === "PageUp" ? ["page", -1]
-    : KEYS[e.key] ?? [];
-  if (!what) return;
+  if (!$("#content")) return;
+  if (e.target instanceof Element) {
+    // typing owns the keys; a focused button or link keeps Space and Enter to
+    // press itself, but the page keys still work after a click on a toolbar button
+    if (e.target.closest("input, textarea, select")) return;
+    if (e.target.closest("button, a") && (e.key === " " || e.key === "Enter")) return;
+  }
+  const name = keyName(e);
+  const shortcut = SHORTCUTS.find((s) => s.keys.includes(name));
+  if (!shortcut) return;
   e.preventDefault();
-  if (what === "page") pageScroll(d);
-  else nav(d);
+  shortcut.run();
+}
+
+function closePanels() {
+  for (const id of ["toc", "marks"]) { const p = $("#" + id); if (p) p.hidden = true; }
+  $("#settingsPanel")?.remove();
+  $("#kbdHelp")?.remove();
+}
+
+function toggleHelp() {
+  if ($("#kbdHelp")) return void $("#kbdHelp").remove();
+  closePanels();
+  document.body.append(el("div", { id: "kbdHelp", role: "dialog" },
+    el("div", { class: "toc-head" },
+      el("strong", {}, t("kbd.title")),
+      el("button", { class: "iconbtn", title: t("ui.close"), onclick: () => $("#kbdHelp").remove() }, "✕")),
+    ...SHORTCUTS.map((s) => el("div", { class: "kbd-row" },
+      el("span", {}, t(s.label)),
+      el("span", {}, ...s.show.map((k) => el("kbd", {}, k)))))));
 }
 
 // Tap zones over the text — see tapZone. The bars start hidden (nothing sets

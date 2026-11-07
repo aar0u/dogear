@@ -520,6 +520,34 @@ button {
   padding: 0.5rem 0;
 }
 .set-reset { margin-top: 0.4rem; font-size: 0.85rem; }
+
+#kbdHelp {
+  position: fixed;
+  top: calc(3.4rem + env(safe-area-inset-top));
+  right: max(0.6rem, env(safe-area-inset-right));
+  z-index: 12;
+  width: min(22rem, 92vw);
+  padding: 0 0.9rem 0.6rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  -webkit-user-select: none;
+  user-select: none;
+}
+#kbdHelp .toc-head { padding-inline: 0; }
+.kbd-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.3rem 0; font-size: 0.9rem; }
+.kbd-row span:last-child { display: flex; gap: 0.3rem; flex-wrap: wrap; justify-content: flex-end; }
+kbd {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.05rem 0.4rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
 .set-row select {
   font: inherit;
   min-width: 7.5rem;

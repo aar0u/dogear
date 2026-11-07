@@ -188,6 +188,12 @@ function noticePack(force = false) {
   })();
 }
 
+// The Space key: narration off starts it, narration on pauses or resumes it
+export function playPause() {
+  if (!player.on) return togglePlayer();
+  playerPlayPause();
+}
+
 export function togglePlayer() {
   if (player.on) return closePlayer();
   // a NEW reading opens at the top of the page on screen — the tracked
