@@ -25,7 +25,7 @@
 // this cache and their URLs are unversioned — bump the shell version
 // whenever any of them changes, or installed devices keep the old asset
 // forever.
-const SHELL = "bw-shell-v41"; // v41: one position write at a time; engine button offers the pack
+const SHELL = "bw-shell-v44"; // v44: voice-pack failure shows its reason
 // The offline TTS engine's big binaries live in their own bw-wasmtts cache
 // (the synth worker's) and ort's wasm in bw-wasmtts-rt (above), but every
 // same-origin file the engine loads by URL rides the shell: the worker

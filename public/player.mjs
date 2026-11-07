@@ -164,9 +164,11 @@ function noticePack(force = false) {
         label.textContent = t("player.packDone");
         go.remove();
         pickEngine(); // no-op while listening; closePlayer runs it again
-      } catch {
+      } catch (err) {
         // half a pack is fine: a retry skips what already landed
-        label.textContent = t("player.packFail");
+        console.error("voice pack download failed:", err);
+        const why = err?.message ?? String(err);
+        label.textContent = `${t("player.packFail")}（${why.slice(0, 120)}）`;
         go.textContent = t(goKey, Math.round(await wasmTts.packMissingBytes() / 1048576));
         go.disabled = false;
       }

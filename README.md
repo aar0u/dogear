@@ -38,13 +38,18 @@ pnpm exec wrangler secret bulk .dev.vars
 
 ## 添加书
 
+在书架页脚点「上传书」，选择 TXT 或 EPUB，确认书名和作者后开始。文件在浏览器里解析、分章（Worker 没有这么长的运行时间），再逐章上传，最后写 manifest，所以传到一半的书不会出现在书架上。
+
+- 上传期间不能关闭或离开页面，页面会提示，并尽量保持屏幕常亮。免费 WebDAV 写入慢（Koofr 每个文件 2 到 4 秒），一本近千章的书要约 30 分钟。
+- 中断后重新上传即可：没有 manifest 的文件夹视为未完成，下次上传开始时会先清除超过 10 分钟的未完成文件夹；上传失败后点「重新上传」会先删掉自己已传的部分。没有做断点续传，清除重来更简单。
+
+命令行也可以用（同样的解析和分章逻辑）：
+
 ```
 node scripts/publish-book.mjs 书名.txt --title 书名 --author 作者
 node scripts/publish-book.mjs 书名.epub
 node scripts/publish-book.mjs --from-dav 书名.epub    # 文件已在 DAV_ROOT 下
 ```
-
-脚本把书拆成章节文件再上传，manifest 最后写，传到一半的书不会出现在书架上。免费 WebDAV 写入慢（Koofr 每个文件 2 到 4 秒），一本近千章的书要约 30 分钟。
 
 ## 离线朗读语音包
 

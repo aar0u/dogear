@@ -67,7 +67,7 @@
         <button id="heroOffline" class="iconbtn shelf-offline">⇣</button>
       </div>
       <div id="bookList" class="cover-grid"></div>
-      <p id="emptyNote" class="muted" hidden data-i18n="lib.empty">書架還是空的 — 用 scripts/split-book.mjs 切好章節，再用 scripts/publish-book.mjs 上傳。</p>
+      <p id="emptyNote" class="muted" hidden data-i18n="lib.empty">书架还是空的 — 点页脚的「上传书」添加。</p>
       <p class="muted small">
         <span data-i18n="lib.readingAs">閱讀身分 </span><code id="uidCode">—</code>
         <button id="changeKeyBtn" class="linklike" data-i18n="lib.change">更換</button>
@@ -88,6 +88,7 @@
       <p class="muted small">
         <span id="buildLine"></span> ·
         <span hidden><button id="relnotesBtn" class="linklike" data-i18n="lib.relnotes" data-i18n-title="lib.relnotesTitle">版本紀錄</button></span>
+        <button id="uploadBtn" class="linklike" data-i18n="up.open">上传书</button> ·
         <button id="refreshBtn" class="linklike" data-i18n="lib.refresh" data-i18n-title="lib.refreshTitle">重新整理</button> ·
         <button id="langBtn" class="linklike" data-i18n="lib.langSwitch" data-i18n-title="lib.langTitle">English</button>
         <span id="installWrap"> ·
@@ -114,6 +115,27 @@
         <li data-i18n="guide.done">之后就从主屏幕打开 dogear。</li>
       </ol>
       <p><button id="guideContinue" class="linklike" data-i18n="guide.continue">先繼續閱讀</button></p>
+    </section>
+
+    <!-- upload a book (openUpload): parsed in the browser, uploaded chapter by chapter -->
+    <section id="uploadScreen" class="library" hidden>
+      <h1><span class="brand">dogear</span></h1>
+      <h2 data-i18n="up.h">上传书</h2>
+      <p class="muted" data-i18n="up.pick">选择 TXT 或 EPUB 文件。解析在这台设备上完成，再逐章上传到 WebDAV。</p>
+      <p><input id="upFile" type="file" accept=".txt,.epub,text/plain,application/epub+zip"></p>
+      <div id="upForm" hidden>
+        <p><label><span data-i18n="up.titleLabel">书名</span> <input id="upTitle" type="text"></label></p>
+        <p><label><span data-i18n="up.authorLabel">作者</span> <input id="upAuthor" type="text"></label></p>
+        <p id="upSummary" class="muted"></p>
+        <p><button id="upStart" class="linklike" data-i18n="up.start">开始上传</button></p>
+      </div>
+      <div id="upRun" hidden>
+        <p class="upwarn" data-i18n="up.warn">上传期间请不要关闭或离开此页，也不要让屏幕休眠。</p>
+        <span class="upbar"><span class="upfill" id="upFill"></span></span>
+        <p id="upStatus" class="muted"></p>
+      </div>
+      <p id="upMsg" class="muted"></p>
+      <p><button id="upBack" class="linklike" data-i18n="up.back">回到书架</button></p>
     </section>
 
     <!-- loading / not-found / bad-url (renderMessage) -->

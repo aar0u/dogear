@@ -454,6 +454,7 @@ $("#changeKeyBtn").onclick = async () => {
 $("#pushBtn").onclick = () => togglePush();
 $("#pushTestBtn").onclick = () => testPush();
 $("#refreshBtn").onclick = () => forceRefresh();
+$("#uploadBtn").onclick = () => openUpload();
 // the switch names the language you would GET, which is the one form a
 // reader of either language can recognise without reading the other. A
 // switch is a re-sweep plus a repaint of the JS-filled strings — never a
@@ -811,7 +812,7 @@ async function renderLibrary() {
       return renderKeyGate(renderLibrary, !!getKey());
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    books = (await res.json()).books;
+    books = withRecentUploads((await res.json()).books);
     // the cookie knows who we are but localStorage forgot (a cleared site,
     // a new browser profile with the key re-entered elsewhere): recover it
     if (!uid) uid = await whoami();
@@ -833,6 +834,186 @@ async function renderLibrary() {
   }
   paintShelf(books, { uid, stale: false });
 }
+
+// ---------- upload a book ----------
+//
+// The browser does the slow parts: it reads the file, splits it into chapters,
+// and PUTs them one request each (4 at a time) to /api/upload, the manifest
+// LAST — until the manifest is there the shelf cannot see the book. A WebDAV
+// write takes seconds, so a long book takes minutes and the page must stay
+// open; that is said on screen and the browser asks before closing it.
+// An interrupted upload leaves a folder with no manifest. The next upload
+// first asks the server to clear such leftovers, and a failed run drops its
+// own folder before starting over — clearing is simpler than resuming.
+
+let uploading = false;
+let pendingBook = null; // parsed, waiting for the reader to press start
+let failedUploadId = null;
+
+function openUpload() {
+  showScreen("uploadScreen");
+  pendingBook = null;
+  $("#upFile").value = "";
+  $("#upFile").disabled = false;
+  $("#upForm").hidden = true;
+  $("#upRun").hidden = true;
+  $("#upMsg").textContent = "";
+  $("#upBack").hidden = false;
+  $("#upStart").textContent = t("up.start");
+}
+
+async function onUploadFile(e) {
+  const file = e.target.files[0];
+  if (!file || uploading) return;
+  $("#upForm").hidden = true;
+  $("#upMsg").textContent = t("up.parsing");
+  try {
+    const [{ parseBook }, { unzipSync }] = await Promise.all([
+      import("/import-core.mjs"), import("/vendor/fflate.js"),
+    ]);
+    const book = parseBook({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), unzipSync });
+    if (!book.pieces.length) throw new Error(t("up.noChapters"));
+    pendingBook = book;
+    failedUploadId = null;
+    $("#upTitle").value = book.title;
+    $("#upAuthor").value = book.author ?? "";
+    const chars = book.pieces.reduce((n, p) => n + p.body.length, 0);
+    const known = (() => { try { return JSON.parse(localStorage.getItem("bw_books")) ?? []; } catch { return []; } })();
+    $("#upSummary").textContent = [
+      t("up.summary", book.pieces.length, chars),
+      book.headingCount < 3 ? t("up.noHeadings") : "",
+      known.some((b) => b.title === book.title) ? t("up.dup") : "",
+    ].filter(Boolean).join(" ");
+    $("#upMsg").textContent = "";
+    $("#upForm").hidden = false;
+  } catch (err) {
+    $("#upMsg").textContent = t("up.parseFail", err.message);
+  }
+}
+
+// A server on another isolate may still serve a shelf from before the upload
+// (a 20 s cache), which would make a just-finished book vanish. Keep it for 2 minutes.
+function withRecentUploads(books) {
+  let recent = [];
+  try { recent = JSON.parse(localStorage.getItem("bw_uploaded")) ?? []; } catch { /* ignore */ }
+  recent = recent.filter((b) => Date.now() - b.at < 120_000);
+  try { localStorage.setItem("bw_uploaded", JSON.stringify(recent)); } catch { /* full */ }
+  return [...books, ...recent.filter((r) => !books.some((b) => b.id === r.id)).map(({ at, ...b }) => b)];
+}
+
+// one PUT, retried on a network error, 429 or 5xx
+async function upPut(url, body, type) {
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    try {
+      const res = await fetch(url, { method: "PUT", headers: { "content-type": type }, body });
+      if (res.ok) return;
+      lastErr = `HTTP ${res.status}`;
+      if (res.status < 500 && res.status !== 429) break; // a client error will not fix itself
+    } catch (err) {
+      lastErr = err?.message ?? String(err);
+    }
+  }
+  throw new Error(lastErr);
+}
+
+const warnLeave = (e) => { e.preventDefault(); e.returnValue = ""; };
+
+async function startUpload() {
+  if (uploading || !pendingBook) return;
+  uploading = true;
+  const book = pendingBook;
+  const title = $("#upTitle").value.trim() || book.title;
+  const author = $("#upAuthor").value.trim();
+  $("#upFile").disabled = true;
+  $("#upForm").hidden = true;
+  $("#upBack").hidden = true;
+  $("#upMsg").textContent = "";
+  $("#upRun").hidden = false;
+  $("#upFill").style.width = "0%";
+  $("#upStatus").textContent = t("up.preparing");
+  addEventListener("beforeunload", warnLeave);
+  let wake = null;
+  try { wake = await navigator.wakeLock?.request("screen"); } catch { /* denied: the warning still stands */ }
+  try {
+    if (failedUploadId) {
+      await fetch(`/api/upload/${failedUploadId}`, { method: "DELETE" }).catch(() => {});
+      failedUploadId = null;
+    }
+    await fetch("/api/upload-cleanup", { method: "POST" }).catch(() => {}); // best effort
+    const { piecesToEntries, buildManifest, newBookId, shortSlug } = await import("/split-core.mjs");
+    const entries = piecesToEntries(book.pieces);
+    const known = (() => { try { return JSON.parse(localStorage.getItem("bw_books")) ?? []; } catch { return []; } })();
+    const id = newBookId();
+    failedUploadId = id; // cleared again on success
+    const manifest = {
+      ...buildManifest({ id, slug: shortSlug(title, known.map((b) => b.slug)), title, entries }),
+      ...(author ? { author } : {}),
+    };
+    const put = (file, body, type) => upPut(`/api/upload/${id}/${encodeURIComponent(file)}`, body, type);
+
+    const t0 = Date.now();
+    let done = 0;
+    const report = () => {
+      $("#upFill").style.width = `${(done / entries.length) * 100}%`;
+      const mins = done >= 5 ? Math.ceil(((entries.length - done) * (Date.now() - t0)) / done / 60000) : null;
+      $("#upStatus").textContent =
+        t("up.progress", done, entries.length) + (mins === null ? "" : ` · ${t("up.eta", mins)}`);
+    };
+    // the first file alone: it creates the folders, which parallel requests would race to create
+    await put(entries[0].file, entries[0].body, "text/plain; charset=utf-8");
+    done = 1;
+    report();
+    let next = 1;
+    let error = null;
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      while (!error && next < entries.length) {
+        const e = entries[next++];
+        try {
+          await put(e.file, e.body, "text/plain; charset=utf-8");
+          done++;
+          report();
+        } catch (err) {
+          error ??= err;
+        }
+      }
+    }));
+    if (error) throw error;
+    await put("manifest.json", JSON.stringify(manifest), "application/json");
+
+    // show the book on the shelf at once instead of waiting for the next list
+    const added = {
+      id, slug: manifest.slug, title, ...(author ? { author } : {}),
+      chapters: entries.length, totalChars: manifest.totalChars,
+    };
+    try {
+      localStorage.setItem("bw_books", JSON.stringify([...known, added]));
+      localStorage.setItem(`bw_book_${manifest.slug}`, id);
+      localStorage.setItem("bw_uploaded", JSON.stringify([{ ...added, at: Date.now() }]));
+    } catch { /* full */ }
+    failedUploadId = null;
+    pendingBook = null;
+    $("#upFill").style.width = "100%";
+    $("#upStatus").textContent = "";
+    $("#upMsg").textContent = t("up.done", title);
+  } catch (err) {
+    $("#upRun").hidden = true;
+    $("#upForm").hidden = false;
+    $("#upStart").textContent = t("up.retry");
+    $("#upMsg").textContent = t("up.fail", err.message);
+  } finally {
+    uploading = false;
+    removeEventListener("beforeunload", warnLeave);
+    wake?.release().catch(() => {});
+    $("#upBack").hidden = false;
+    $("#upFile").disabled = false;
+  }
+}
+
+$("#upFile").onchange = onUploadFile;
+$("#upStart").onclick = () => startUpload();
+$("#upBack").onclick = () => { if (!uploading) renderLibrary(); };
 
 // What paintShelf last drew, so the language switch can re-render the
 // JS-filled strings without asking the network for the same list again.
@@ -1893,7 +2074,16 @@ function followScroll(offset) {
   if (!c) return;
   const r = offsetRect(offset);
   if (!r) return;
-  // paged reading, both modes: turn to the PAGE holding the spoken
+  // 橫排 scrolls freely, so "which page" means nothing; what matters is whether
+  // the spoken character is in the part of the window the overlays leave
+  // clear. If not, put it one line below the top of that part, no animation.
+  if (!settings.vertical) {
+    const { top, bottom } = overlayInsets();
+    if (r.top >= top && r.bottom <= innerHeight - bottom) return;
+    scrollTo(0, Math.min(scrollEnd(c), Math.max(0, scrollY + r.top - top - GRID.pitch)));
+    return;
+  }
+  // paged reading (直排): turn to the PAGE holding the spoken
   // character (and only when that is not the page already on screen), never
   // a partial scroll. Absolute target, never scrollBy: on-device scrolltest
   // 2026-07-28 proved iOS applies relative scrolls TWICE (8/8 layouts)
@@ -1961,7 +2151,8 @@ function pageStartOffset() {
   // the visible window's start edge, minus 1 px of grid-rounding grace;
   // scrollDist (not page×span) so the chapter-end clamped page keeps its
   // true edge
-  const lead = Math.max(0, scrollDist(c)) - 1;
+  // 橫排: lines under the top bar are not on screen, so start below it
+  const lead = Math.max(0, scrollDist(c)) - 1 + (settings.vertical ? 0 : overlayInsets().top);
   let prev = null, next = null;
   for (const p of ps) {
     if (rectDist(c, p.getBoundingClientRect()) <= lead) prev = p;
@@ -2571,12 +2762,24 @@ let lastPageTurn = 0;
 // they show, so their height is not counted as visible.
 const PAGE_OVERLAP_LINES = 2;
 function readStep() {
-  const covered = (sel) => {
+  const { top, bottom } = overlayInsets();
+  return Math.max(1, Math.floor((innerHeight - top - bottom) / GRID.pitch) - PAGE_OVERLAP_LINES) * GRID.pitch;
+}
+
+// How much of the viewport the overlays cover right now: the top bar from
+// above, the bottom bar and the player pill from below. Measured by position,
+// not height, so the pill's margin from the edge counts.
+function overlayInsets() {
+  const shown = (sel) => {
     const e = $(sel);
-    return e && getComputedStyle(e).display !== "none" ? e.getBoundingClientRect().height : 0;
+    return e && getComputedStyle(e).display !== "none" ? e.getBoundingClientRect() : null;
   };
-  const clear = innerHeight - covered(".topbar") - Math.max(covered(".botnav"), covered(".playerbar"));
-  return Math.max(1, Math.floor(clear / GRID.pitch) - PAGE_OVERLAP_LINES) * GRID.pitch;
+  const top = shown(".topbar");
+  const bottoms = [shown(".botnav"), shown(".playerbar")].filter(Boolean);
+  return {
+    top: top ? top.bottom : 0,
+    bottom: bottoms.length ? Math.max(...bottoms.map((r) => innerHeight - r.top)) : 0,
+  };
 }
 
 function pageScroll(d) {
