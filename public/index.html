@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- zh-Hant is the shipped default (see i18n.js); the language switch in the
+<!-- zh-Hans is the shipped default (see i18n.js); the language switch in the
      library rewrites this attribute when a device picks English -->
 <html lang="zh-Hans">
 <head>
@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <meta name="color-scheme" content="light dark">
-  <title>Bookworm</title>
+  <title>dogear</title>
   <!-- PWA: no start_url in the manifest, so 加入主畫面 from a book URL opens
        straight into that book; black-translucent + safe-area padding in the
        CSS lets the text use the whole screen in the installed app -->
@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Bookworm">
+  <meta name="apple-mobile-web-app-title" content="dogear">
   <meta name="theme-color" content="#f6efdc" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#17181c" media="(prefers-color-scheme: dark)">
   <link rel="apple-touch-icon" href="/icons/icon-180.png">
@@ -32,19 +32,19 @@
 
     <!-- the locked door (renderKeyGate) -->
     <section id="gateScreen" class="library" hidden>
-      <h1><span class="brand">Bookworm</span></h1>
-      <p id="gateLead" class="muted" data-i18n="auth.need">這是私人書房，要有鑰匙才能開書。把鑰匙連結傳到這台裝置上打開，或把鑰匙貼在下面。</p>
+      <h1><span class="brand">dogear</span></h1>
+      <p id="gateLead" class="muted" data-i18n="auth.need">这是私人书房，输入访问密码才能开书。</p>
       <form id="keyForm">
         <input id="keyInput" type="password" autocomplete="off">
-        <button id="keySubmit" class="linklike" type="submit" data-i18n="auth.submit">開門</button>
+        <button id="keySubmit" class="linklike" type="submit" data-i18n="auth.submit">开门</button>
       </form>
       <p id="keyMsg" class="muted small"></p>
-      <p class="muted small" data-i18n="auth.hint">鑰匙由管理者在 /admin 產生，一台裝置一把。</p>
+      <p class="muted small" data-i18n="auth.hint">访问密码就是部署时设置的 READER_KEY，每台设备输入一次。</p>
     </section>
 
     <!-- 書架 (renderLibrary / paintShelf): 書衣 covers with a 續讀 hero -->
     <section id="shelfScreen" class="library" hidden>
-      <h1><span class="brand">Bookworm</span></h1>
+      <h1><span class="brand">dogear</span></h1>
       <p id="staleNote" class="muted small" hidden>
         <span data-i18n="lib.offlineList">離線 — 顯示上次看到的書目。 </span>
         <button id="staleRetry" class="linklike" data-i18n="lib.retry">重試</button>
@@ -72,7 +72,7 @@
         <span data-i18n="lib.readingAs">閱讀身分 </span><code id="uidCode">—</code>
         <button id="changeKeyBtn" class="linklike" data-i18n="lib.change">更換</button>
         <br>
-        <span data-i18n="lib.bookmarkHint">進度與設定跟著鑰匙對應的代號，在每台裝置自動同步。</span>
+        <span data-i18n="lib.bookmarkHint">进度、书签和设置保存在 WebDAV 上，所有设备自动同步。</span>
       </p>
       <!-- 新書上架 / 新版本已上線 (Web Push): shown only where the platform
            can deliver — on iPhone that means the installed PWA -->
@@ -93,7 +93,6 @@
         <span id="installWrap"> ·
           <button id="installBtn" class="linklike" data-i18n="lib.installHint">加入主畫面</button>
         </span>
-        <span hidden><a id="adminLink" class="linklike" href="/admin" data-i18n="lib.admin" data-i18n-title="lib.adminTitle">管理</a></span>
       </p>
       <!-- 版本紀錄 (paintRelnotes): /releases.json 的 reader-facing 行 -->
       <div id="relnotesPanel" class="muted small" hidden></div>
@@ -101,18 +100,18 @@
 
     <!-- the install guide (renderInstallGuide) -->
     <section id="guideScreen" class="library" hidden>
-      <h1><span class="brand">Bookworm</span></h1>
+      <h1><span class="brand">dogear</span></h1>
       <h2 data-i18n="guide.h">加入主畫面</h2>
       <p class="muted" data-i18n="guide.why">安裝成 App 之後全螢幕開啟、離線閱讀更可靠，也才能收到新書通知。</p>
       <ol id="guideIos" class="guide-steps">
         <li data-i18n="guide.ios1">在 Safari 點底部的分享按鈕（方框加向上箭頭）。</li>
         <li data-i18n="guide.ios2">往下捲，選「加入主畫面」，再按「加入」。</li>
-        <li data-i18n="guide.done">之後就從主畫面開啟 Bookworm。</li>
+        <li data-i18n="guide.done">之后就从主屏幕打开 dogear。</li>
       </ol>
       <ol id="guideOther" class="guide-steps" hidden>
         <li data-i18n="guide.other1">打開瀏覽器選單（⋮）。</li>
         <li data-i18n="guide.other2">選「安裝應用程式」或「加入主畫面」。</li>
-        <li data-i18n="guide.done">之後就從主畫面開啟 Bookworm。</li>
+        <li data-i18n="guide.done">之后就从主屏幕打开 dogear。</li>
       </ol>
       <p><button id="guideContinue" class="linklike" data-i18n="guide.continue">先繼續閱讀</button></p>
     </section>

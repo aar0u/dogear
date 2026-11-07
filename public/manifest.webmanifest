@@ -1,6 +1,6 @@
 {
-  "name": "Bookworm",
-  "short_name": "Bookworm",
+  "name": "dogear",
+  "short_name": "dogear",
   "scope": "/",
   "start_url": "/",
   "display": "standalone",
