@@ -25,7 +25,7 @@
 // this cache and their URLs are unversioned — bump the shell version
 // whenever any of them changes, or installed devices keep the old asset
 // forever.
-const SHELL = "dogear-shell-v66"; // v66: a finished upload shows only that it is finished
+const SHELL = "dogear-shell-v67"; // v67: a replaced or deleted book is noticed, not read from its stale copy
 // The offline TTS engine's big binaries live in their own dogear-wasmtts cache
 // (the synth worker's) and ort's wasm in dogear-wasmtts-rt (above), but every
 // same-origin file the engine loads by URL rides the shell: the worker
@@ -72,9 +72,13 @@ self.addEventListener("fetch", (e) => {
 
   if (url.pathname.startsWith("/books/")) {
     e.respondWith(
-      url.pathname.endsWith("manifest.json")
-        ? manifestFetch(e)
-        : cacheFirst(e.request),
+      // ?live: the page wants the server's own answer (checkBookStillThere),
+      // not a cached copy and not another cache entry
+      url.searchParams.has("live")
+        ? fetch(e.request)
+        : url.pathname.endsWith("manifest.json")
+          ? manifestFetch(e)
+          : cacheFirst(e.request),
     );
     return;
   }

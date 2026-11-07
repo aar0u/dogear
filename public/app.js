@@ -1390,11 +1390,13 @@ function posKey() {
 // fallback here: it is what makes an offline first open, a server that has
 // not been reindexed, and a stale link all degrade to "try the obvious key"
 // instead of an error page.
-async function resolveBookId(slug) {
+async function resolveBookId(slug, mustAnswer = false) {
   try {
     // capped: the fallback below is a pure guess the device can make on its
-    // own, so a hung lookup is never worth waiting for
-    const res = await fetch(`/api/books/${encodeURIComponent(slug)}`, capped());
+    // own, so a hung lookup is never worth waiting for — unless the server has
+    // just said the remembered book is gone, when it is the only way to find
+    // the book that took its place (mustAnswer)
+    const res = await fetch(`/api/books/${encodeURIComponent(slug)}`, mustAnswer ? undefined : capped());
     if (res.ok) {
       const book = (await res.json()).book;
       if (book?.id) {
@@ -1404,6 +1406,34 @@ async function resolveBookId(slug) {
     }
   } catch { /* offline */ }
   return cachedBookId(slug) ?? slug;
+}
+
+// Everything this device keeps for a book that no longer exists on the server.
+function forgetBook(id) {
+  caches?.delete?.(`dogear-book-${id}`);
+  try {
+    localStorage.removeItem(`dogear_prog_${id}`);
+    // the position is kept per book and per reader: dogear_pos_<id>_<reader>
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith(`dogear_pos_${id}_`)) localStorage.removeItem(key);
+  } catch { /* private mode */ }
+}
+
+// The book was opened from this device's copy because the server did not answer
+// in time (it is slow to wake, and a copy is what makes opening instant). Ask
+// again without a cap, past the service worker's own cached answer: if the
+// server says the book is gone — deleted, or replaced by a new upload with the
+// same address — drop what is remembered and reopen, which finds the new one.
+function checkBookStillThere() {
+  const id = state.id;
+  fetch(`/books/${encodeURIComponent(id)}/manifest.json?live=1`)
+    .then((res) => {
+      if (res.status !== 404 || state.id !== id) return;
+      forgetBook(id);
+      try { localStorage.removeItem(`dogear_book_${state.slug}`); } catch { /* private mode */ }
+      location.reload();
+    })
+    .catch(() => { /* offline, or unreachable: keep reading the copy */ });
 }
 
 // What this device last knew this slug to mean. renderLibrary seeds it for
@@ -1431,6 +1461,8 @@ async function initReader(slug) {
   // 401 and "not there" must part ways: the first is a dead cookie or a
   // revoked key (the gate's business), the second a bad slug
   let denied = false;
+  let gone = false; // the server said this id is not a book (deleted, or replaced)
+  let fromCopy = false; // the manifest came from this device's copy, not the server
   const loadManifest = async () => {
     // what the device already holds decides how long the server gets: with a
     // copy in hand a hung connection costs a second, without one the network
@@ -1444,11 +1476,15 @@ async function initReader(slug) {
     try {
       const res = await fetch(bookUrl("manifest.json"), hit ? capped() : undefined);
       if (res.status === 401) denied = true;
+      else if (res.status === 404) gone = true;
       else if (res.ok) m = await res.json();
     } catch { /* offline, or capped — the cached copy below */ }
     // the offline copy also serves a revoked device that still holds the
-    // book: revocation fences the server, not what a phone already has
-    if (!m && hit) m = await hit.json();
+    // book: revocation fences the server, not what a phone already has. A 404 is
+    // different — the book was deleted or replaced, and its copy must not bring
+    // it back (its audio and every later request would 404 too)
+    fromCopy = false;
+    if (!m && hit && !gone) { m = await hit.json(); fromCopy = true; }
     return m;
   };
   // A remembered mapping is taken as-is: ids never change, so this saves a
@@ -1459,9 +1495,12 @@ async function initReader(slug) {
   state.id = remembered ?? await resolveBookId(slug);
   let manifest = await loadManifest();
   if (!manifest && remembered) {
-    const fresh = await resolveBookId(slug);
-    if (fresh && fresh !== state.id) {
+    const old = state.id;
+    const fresh = await resolveBookId(slug, gone);
+    if (fresh && fresh !== old) {
       state.id = fresh;
+      if (gone) forgetBook(old);
+      gone = false;
       manifest = await loadManifest();
     }
   }
@@ -1500,6 +1539,7 @@ async function initReader(slug) {
     for (const c of manifest.chapters) c.title = state.hant(c.title);
   }
   try { localStorage.setItem("dogear_last_book", slug); } catch { /* private mode */ }
+  if (fromCopy && navigator.onLine !== false) checkBookStillThere();
   state.cum = manifest.chapters.reduce((acc, c) => {
     acc.push((acc[acc.length - 1] ?? 0) + c.chars);
     return acc;
