@@ -2815,19 +2815,29 @@ function pageScroll(d) {
 function toggleToc() {
   const toc = $("#toc");
   if (!toc.hidden) { toc.hidden = true; return; }
+  const items = state.manifest.chapters.map((c, i) =>
+    el("button", {
+      class: "toc-item" + (i === state.idx ? " current" : ""),
+      onclick: () => { toc.hidden = true; openChapter(i, 0).then(() => flush()); },
+    }, c.title));
+  const filter = el("input", {
+    type: "search", class: "toc-filter", placeholder: t("toc.filter"), autocomplete: "off",
+    oninput: () => {
+      const q = filter.value.trim().toLowerCase();
+      items.forEach((b, i) => { b.hidden = !!q && !b.textContent.toLowerCase().includes(q); });
+    },
+  });
   toc.replaceChildren(
     el("div", { class: "toc-head" },
       el("strong", {}, t("ui.contents")),
       el("button", { class: "iconbtn", onclick: () => (toc.hidden = true) }, "✕")),
-    el("div", { class: "toc-list" },
-      state.manifest.chapters.map((c, i) =>
-        el("button", {
-          class: "toc-item" + (i === state.idx ? " current" : ""),
-          onclick: () => { toc.hidden = true; openChapter(i, 0).then(() => flush()); },
-        }, c.title))),
+    el("div", { class: "toc-search" }, filter),
+    el("div", { class: "toc-list" }, items),
   );
   toc.hidden = false;
   toc.querySelector(".current")?.scrollIntoView({ block: "center" });
+  // a phone would pop the keyboard over the list
+  if (matchMedia("(pointer: fine)").matches) filter.focus();
 }
 
 // ---------- bookmarks: several named places per book ----------

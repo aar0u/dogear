@@ -452,6 +452,19 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.toc-search { padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); }
+.toc-filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.toc-item[hidden] { display: none; }
+
 .toc-list { overflow-y: auto; flex: 1; }
 
 .toc-item {
