@@ -1,3 +1,11 @@
+# The project directory is shared by a macOS host and a Linux container, and
+# wrangler's workerd/esbuild come as per-platform binaries. Installing both keeps
+# one node_modules working on either side instead of each install replacing the
+# other's binary.
+supportedArchitectures:
+  os: [darwin, linux]
+  cpu: [arm64]
+
 allowBuilds:
   esbuild: true
   workerd: true
