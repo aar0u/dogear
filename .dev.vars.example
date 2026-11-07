@@ -1,0 +1,8 @@
+# Copy to .dev.vars for `wrangler dev` and for scripts/publish-book.mjs.
+# For production set the same names with `wrangler secret put <NAME>`.
+READER_KEY=a-long-random-string
+DAV_URL=https://example.infini-cloud.net/dav
+DAV_USER=your-webdav-user
+DAV_PASS=your-webdav-app-password
+# folder inside the WebDAV account that holds books/ and state/
+DAV_ROOT=dogear

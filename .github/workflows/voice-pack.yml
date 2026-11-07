@@ -1,0 +1,47 @@
+name: voice-pack
+
+# Builds the offline TTS voice pack from its upstream sources (every file is
+# checked against the size and SHA-256 pinned by wasmtts) and publishes it as
+# the `voice-pack` release that the worker's /api/wasmtts/* route proxies.
+# Pack file names carry the version or a content hash, so an existing name is
+# never overwritten; names a newer pin no longer uses are left in place.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [package.json, pnpm-lock.yaml, scripts/build-pack.mjs, scripts/wasmtts-pin.mjs]
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/vendor.mjs
+      - run: node scripts/build-pack.mjs dist/pack
+      - name: Publish missing files to the voice-pack release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view voice-pack >/dev/null 2>&1 \
+            || gh release create voice-pack --title "voice-pack" --notes "Offline TTS voice pack, built by the voice-pack workflow."
+          have=$(gh release view voice-pack --json assets --jq '.assets[].name')
+          for f in dist/pack/*; do
+            name=$(basename "$f")
+            if grep -qx -- "$name" <<<"$have"; then
+              echo "already on release: $name"
+            else
+              gh release upload voice-pack "$f"
+            fi
+          done
