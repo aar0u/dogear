@@ -2282,7 +2282,7 @@ let lastScrollEvent = 0;
 function onScroll() {
   lastScrollEvent = Date.now();
   if (scrollTick) return;
-  scrollTick = setTimeout(() => { scrollTick = 0; trackScroll(); }, 400);
+  scrollTick = setTimeout(() => { scrollTick = 0; updateChapterPct(); trackScroll(); }, 400);
 }
 
 function trackScroll() {
@@ -2513,10 +2513,25 @@ function updateProgress() {
   try {
     localStorage.setItem(`dogear_prog_${state.id}`, JSON.stringify({ chapter: state.idx, pct, at: Date.now() }));
   } catch { /* full or private mode */ }
+  // two lines, so both percentages fit between the chapter buttons on a phone
   $("#progress")?.replaceChildren(
-    el("span", { id: "syncdot", class: "syncdot " + syncState, title: t("sync." + syncState) }),
-    ` ${state.idx + 1}/${state.manifest.chapters.length} · ${pct.toFixed(1)}%`,
+    el("span", { class: "progress-line" },
+      el("span", { id: "syncdot", class: "syncdot " + syncState, title: t("sync." + syncState) }),
+      ` ${state.idx + 1}/${state.manifest.chapters.length} · ${t("ui.bookPct", pct.toFixed(1))}`),
+    el("span", { id: "chpct" }),
   );
+  updateChapterPct();
+}
+
+// How far down this chapter the window is. The scroll position itself, not the
+// paragraph the tracker has settled on, so it moves with every scroll tick and
+// reads exactly 100% at the bottom (a chapter that fits on one screen is 100%).
+function updateChapterPct() {
+  const span = $("#chpct");
+  if (!span) return;
+  const end = scrollEnd();
+  const pct = end <= 1 ? 100 : Math.min(100, Math.max(0, Math.round((scrollY / end) * 100)));
+  span.textContent = t("ui.chapterPct", pct);
 }
 
 // ---------- navigation ----------

@@ -25,7 +25,7 @@
 // this cache and their URLs are unversioned — bump the shell version
 // whenever any of them changes, or installed devices keep the old asset
 // forever.
-const SHELL = "dogear-shell-v67"; // v67: a replaced or deleted book is noticed, not read from its stale copy
+const SHELL = "dogear-shell-v68"; // v68: chapter progress in the bottom bar
 // The offline TTS engine's big binaries live in their own dogear-wasmtts cache
 // (the synth worker's) and ort's wasm in dogear-wasmtts-rt (above), but every
 // same-origin file the engine loads by URL rides the shell: the worker

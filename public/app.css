@@ -258,12 +258,14 @@ button {
 .progress {
   cursor: pointer; /* a tap toggles full screen */
   font-size: 0.8rem;
+  line-height: 1.3;
   color: var(--muted);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
   white-space: nowrap;
 }
+.progress-line { display: flex; align-items: center; gap: 0.4rem; }
 
 /* The sync light (see setSyncDot): the footer dot and the corner copy share
    these states and colours. amber = waiting to upload, ring = uploading,
