@@ -1,3 +1,8 @@
+# pnpm 9 (the version Cloudflare's build image uses) refuses a workspace file
+# without this field; newer pnpm accepts it too.
+packages:
+  - "."
+
 # The project directory is shared by a macOS host and a Linux container, and
 # wrangler's workerd/esbuild come as per-platform binaries. Installing both keeps
 # one node_modules working on either side instead of each install replacing the

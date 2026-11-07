@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/vendor.mjs && wrangler dev",
-    "deploy": "node scripts/vendor.mjs && wrangler deploy",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "vendor": "node scripts/vendor.mjs",
     "publish-book": "node scripts/publish-book.mjs",
     "test": "node scripts/test-api.mjs"

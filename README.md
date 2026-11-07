@@ -32,6 +32,8 @@ pnpm run deploy
 pnpm exec wrangler secret bulk .dev.vars
 ```
 
+`wrangler deploy` 会先运行 `wrangler.jsonc` 里的 `build.command`（`node scripts/vendor.mjs`），生成 `public/vendor/`（不提交，Worker 代码要引用它）。所以用 Cloudflare 的 Git 集成自动部署时，部署命令保持默认的 `npx wrangler deploy` 即可，构建命令可以留空。Cloudflare 的构建镜像用 pnpm 9，`pnpm-workspace.yaml` 里的 `packages` 字段就是为它保留的。
+
 线上的密钥不会随 `deploy` 上传，`.dev.vars` 只给本地用。`secret bulk` 一次把 `.dev.vars` 里的 `READER_KEY`、`DAV_URL`、`DAV_USER`、`DAV_PASS`、`DAV_ROOT` 同步到线上。**换环境、换账号或改了密码后要重新跑这一条**，很容易忘。线上的 `READER_KEY` 请用足够长的随机串（`openssl rand -base64 24`），Worker 没有登录次数限制，它就是唯一的门。
 
 首次在每台设备上打开网址时输入一次 `READER_KEY`。

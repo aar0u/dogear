@@ -3,6 +3,10 @@
   "name": "dogear",
   "main": "src/worker.js",
   "compatibility_date": "2026-06-01",
+  // public/vendor is generated, not committed, and src/worker.js imports from it:
+  // every `wrangler dev` and `wrangler deploy` (including Cloudflare's own build,
+  // whose deploy command is plain `npx wrangler deploy`) has to produce it first.
+  "build": { "command": "node scripts/vendor.mjs" },
   "vars": {
     "WASMTTS_RELEASE": "https://github.com/aar0u/dogear/releases/download/voice-pack/"
   },
