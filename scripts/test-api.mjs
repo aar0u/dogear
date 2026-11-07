@@ -108,6 +108,23 @@ try {
     await koofrLike.close();
   }
 
+  // a 423 Locked on the position file is retried, and an older write that
+  // loses the race to a newer one does not overwrite it
+  const lockedDav = await startMockDav({ locked: 2 });
+  try {
+    const lenv = { DAV_URL: lockedDav.url, DAV_USER: lockedDav.user, DAV_PASS: lockedDav.pass, DAV_ROOT: "r", READER_KEY: env.READER_KEY };
+    const lpost = (body) => worker.fetch(new Request("http://t/api/position", {
+      method: "POST", headers: { "x-reader-key": env.READER_KEY }, body: JSON.stringify(body),
+    }), lenv, {});
+    assert.equal((await lpost({ book: "b1", chapter: 2, offset: 9, updatedAt: 5000 })).status, 200);
+    const stored = await makeDav(lenv).getJson("state/pos/b1.json");
+    assert.deepEqual(stored, { chapter: 2, char_off: 9, updated_at: 5000 });
+    assert.equal((await lpost({ book: "b1", chapter: 0, offset: 1, updatedAt: 4000 })).status, 200);
+    assert.equal((await makeDav(lenv).getJson("state/pos/b1.json")).updated_at, 5000);
+  } finally {
+    await lockedDav.close();
+  }
+
   // Sec-MS-GEC v2 golden value, produced by the edge-tts Python package's
   // generate_sec_ms_gec_v2(1762500000)
   assert.equal(await secMsGec(1762500000),

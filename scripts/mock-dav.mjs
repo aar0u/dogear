@@ -3,7 +3,10 @@ import { createServer } from "node:http";
 
 // missingParent: the status a server answers for PUT/MKCOL under a missing folder
 // (409 per RFC 4918; Koofr answers 404).
-export function startMockDav({ user = "u", pass = "p", missingParent = 409 } = {}) {
+// locked: how many PUTs to answer with 423 before accepting (Koofr locks a file
+// that another PUT is still writing).
+export function startMockDav({ user = "u", pass = "p", missingParent = 409, locked = 0 } = {}) {
+  let lockedLeft = locked;
   const files = new Map(); // "a/b.txt" -> { body: Buffer, type }
   const dirs = new Set([""]);
   const expected = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
@@ -29,6 +32,7 @@ export function startMockDav({ user = "u", pass = "p", missingParent = 409 } = {
     }
     if (req.method === "PUT") {
       if (!dirs.has(parentOf(p))) return send(missingParent);
+      if (lockedLeft > 0 && p.startsWith("state/")) { lockedLeft--; return send(423); }
       files.set(p, { body, type: req.headers["content-type"] ?? "application/octet-stream" });
       return send(201);
     }

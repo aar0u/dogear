@@ -165,6 +165,7 @@ async function listBooks(request, env) {
       for (let c = 0; c < Math.min(pos.chapter, b.chapterChars.length); c++) before += b.chapterChars[c];
       out.progress = {
         chapter: pos.chapter,
+        updatedAt: pos.updated_at,
         pct: Number(Math.min(100, ((before + pos.char_off) / b.totalChars) * 100).toFixed(1)),
       };
     }
@@ -220,6 +221,25 @@ function clampTs(updatedAt) {
   return Math.min(Number.isFinite(updatedAt) ? Math.floor(updatedAt) : Date.now(), Date.now() + 60_000);
 }
 
+// Write `record` (which carries updated_at) unless the stored one is newer.
+// Koofr answers 423 Locked to a PUT while another PUT to the same file is
+// still running, and position writes overlap (a beacon plus the timer flush,
+// two devices). After a 423 the stored record is read again before retrying,
+// so a slow older write cannot land on top of a newer one that got in first.
+async function putLww(dav, path, record) {
+  for (let attempt = 0; ; attempt++) {
+    const prev = await dav.getJson(path);
+    if (prev && record.updated_at < prev.updated_at) return;
+    try {
+      await dav.putJson(path, record);
+      return;
+    } catch (err) {
+      if (err.status !== 423 || attempt >= 4) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+}
+
 async function readBody(request) {
   try {
     return await request.json();
@@ -244,9 +264,7 @@ async function handlePosition(request, env, url) {
       !Number.isInteger(offset) || offset < 0)
     return json({ error: "invalid body" }, 400);
   const ts = clampTs(updatedAt);
-  const prev = await dav.getJson(`state/pos/${book}.json`);
-  if (!prev || ts >= prev.updated_at)
-    await dav.putJson(`state/pos/${book}.json`, { chapter, char_off: offset, updated_at: ts });
+  await putLww(dav, `state/pos/${book}.json`, { chapter, char_off: offset, updated_at: ts });
   return json({ ok: true });
 }
 
@@ -270,12 +288,9 @@ async function handleSettings(request, env) {
   if (!body || !validSettings(body.settings)) return json({ error: "invalid body" }, 400);
   const s = body.settings;
   const ts = clampTs(body.updatedAt);
-  const prev = await dav.getJson("state/settings.json");
-  if (!prev || ts >= prev.updated_at) {
-    const data = { fontSize: s.fontSize, vertical: s.vertical, bg: s.bg,
-      ...(s.leading !== undefined ? { leading: s.leading } : {}) };
-    await dav.putJson("state/settings.json", { data, updated_at: ts });
-  }
+  const data = { fontSize: s.fontSize, vertical: s.vertical, bg: s.bg,
+    ...(s.leading !== undefined ? { leading: s.leading } : {}) };
+  await putLww(dav, "state/settings.json", { data, updated_at: ts });
   return json({ ok: true });
 }
 
@@ -303,9 +318,7 @@ async function handleBookmarks(request, env, url) {
   if (!body || !ID_RE.test(body.book ?? "") || !validMarks(body.marks))
     return json({ error: "invalid body" }, 400);
   const ts = clampTs(body.updatedAt);
-  const prev = await dav.getJson(`state/marks/${body.book}.json`);
-  if (!prev || ts >= prev.updated_at)
-    await dav.putJson(`state/marks/${body.book}.json`, { marks: body.marks, updated_at: ts });
+  await putLww(dav, `state/marks/${body.book}.json`, { marks: body.marks, updated_at: ts });
   return json({ ok: true });
 }
 

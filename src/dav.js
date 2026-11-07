@@ -91,7 +91,7 @@ export function makeDav(env) {
         await mkcols(path);
         res = await send();
       }
-      if (!res.ok) throw new Error(`PUT ${path}: ${res.status}`);
+      if (!res.ok) throw Object.assign(new Error(`PUT ${path}: ${res.status}`), { status: res.status });
     },
 
     putJson: (path, value) => api.put(path, JSON.stringify(value), "application/json"),
