@@ -199,7 +199,9 @@ export function togglePlayer() {
   // a NEW reading opens at the top of the page on screen — the tracked
   // state.off is paragraph-grained and sticky (a straddling paragraph keeps
   // its start), so it routinely points a page or more behind the eye
-  startPlayer(pageStartOffset() ?? state.off);
+  const visible = pageStartOffset();
+  alignForward = visible !== null;
+  startPlayer(visible ?? state.off);
 }
 
 // The engine button: a tap flips the default and, under a live session,
@@ -487,23 +489,53 @@ function advanceChunk(d) {
 // the voice has only just begun this one. (They used to move by synthesis chunk —
 // about 280 characters of whole sentences, whose edges fall anywhere in a
 // paragraph — so a press could land mid-paragraph and ⏮ jumped back almost two.)
+//
+// While a skip is still being voiced (synthesis takes seconds, and state.off
+// does not move until the voice arrives), the next press steps from that
+// pending target instead of from the old position, abandons the request in
+// flight, and waits for the presses to settle before asking for new audio.
+// Without this, a burst of presses re-requested the same paragraph over and
+// over and the voice never arrived.
+let skipPend = null; // { ci, off, timer }
+const SKIP_SETTLE_MS = 250;
+const SKIP_GIVE_UP_MS = 12_000;
+
+function skipPendClear() {
+  if (skipPend) clearTimeout(skipPend.timer);
+  skipPend = null;
+}
+
 function skipParagraph(d) {
   startFloor = -1; // an explicit skip owns the page from here
   player.seekOff = null;
-  const ci = player.chapIdx;
+  const ci = skipPend ? skipPend.ci : player.chapIdx;
   const text = state.cache.get(state.manifest.chapters[ci]?.file);
-  const off = text === undefined ? null : ttsCore.skipTarget(text, state.off, d);
+  const base = skipPend ? skipPend.off : state.off;
+  let off = text === undefined ? null : ttsCore.skipTarget(text, base, d);
+  let to = ci;
   if (off === null) {
     // off the end or the start of the chapter: the neighbouring chapter, from its top
-    const to = ci + (d < 0 ? -1 : 1);
+    to = ci + (d < 0 ? -1 : 1);
     if (to < 0 || to >= state.manifest.chapters.length) return closePlayer();
-    if (useWasm()) return wasmPlayFrom(to, 0);
-    if (useStream) return streamPlayFrom(to, 0);
-    return advanceChapter(d < 0 ? -1 : 1);
+    off = 0;
   }
-  if (useWasm()) return wasmSeekTo(ci, off);
-  if (useStream) return streamSeekTo(ci, off);
-  playFrom(ci, off);
+  const run = () => {
+    const prev = skipPend;
+    if (prev) prev.timer = setTimeout(skipPendClear, SKIP_GIVE_UP_MS);
+    const crossed = to !== player.chapIdx;
+    if (useWasm()) return crossed ? wasmPlayFrom(to, off) : wasmSeekTo(to, off);
+    if (useStream) return crossed ? streamPlayFrom(to, off) : streamSeekTo(to, off);
+    if (!crossed) return playFrom(to, off);
+    // chain engine: open the chapter on screen, then read from the target
+    openChapter(to, off).then(() => { flush(); if (player.on) playFrom(to, off); });
+  };
+  const pending = skipPend !== null;
+  clearTimeout(skipPend?.timer);
+  skipPend = { ci: to, off, timer: 0 };
+  if (!pending) return run();
+  skipPend.timer = setTimeout(run, SKIP_SETTLE_MS);
+  player.status = "loading";
+  updatePlayerBar();
 }
 
 function advanceChapter(d) {
@@ -555,6 +587,8 @@ export function closePlayer() {
   player.chunks = [];
   player.nextUrl = null;
   player.seekOff = null;
+  alignForward = false;
+  skipPendClear();
   clearTimeout(sleepTimer);
   sleepTimer = 0;
   sleepAt = 0;
@@ -1293,6 +1327,9 @@ function updatePlayerBar() {
 // move the bookmark, mark the sentence, turn the page — so the engines can
 // only differ in HOW they find `off`, not in what they do with it.
 function reportOffset(off) {
+  // the voice has arrived at (or just past) the skip target: the next skip
+  // steps from the real position again
+  if (skipPend && player.chapIdx === skipPend.ci && off >= skipPend.off && off < skipPend.off + 400) skipPendClear();
   if (off === state.off) {
     // the position did not move, but a (re)started session has no wash yet
     if (!$("#ttsHl")) markSpoken(off);
@@ -1311,11 +1348,26 @@ function reportOffset(off) {
 // only start on a sentence (its units are sentences); the online ones used to
 // seek to the exact character, which began mid-word. The sentence is marked
 // and the bookmark moves from its first character on.
+//
+// A reading opened from the page on screen (🔊, Space) aligns FORWARD: if the
+// first visible char sits mid-sentence, the sentence starts above the screen,
+// so the reading begins at the next sentence start instead. One-shot.
+let alignForward = false;
+
 function sentenceAlign(chunks, off) {
-  const c = chunks[ttsCore.chunkIndexFor(chunks, off)];
+  const forward = alignForward;
+  alignForward = false;
+  const k = ttsCore.chunkIndexFor(chunks, off);
+  const c = chunks[k];
   if (!c) return off;
   const i = Math.max(0, Math.min(off - c.start, c.chars - 1));
   let a = ttsCore.sentenceStartFor(c.text, i);
+  if (forward && c.start + a < off) {
+    const b = ttsCore.sentenceEndFor(c.text, i);
+    if (b < c.chars) a = b;
+    else if (chunks[k + 1]) return chunks[k + 1].start;
+    else return off;
+  }
   while (a < c.chars - 1 && !c.text[a].trim()) a++; // the paragraph indent is not ink
   return c.start + a;
 }

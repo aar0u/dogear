@@ -2182,7 +2182,7 @@ function pageStartOffset() {
   if (scrollY <= 1) return 0; // the top of the chapter: start with its heading
   // the visible window's top edge, minus 1 px of rounding grace; lines under
   // the top bar are not on screen, so start below it
-  const lead = scrollY - 1 + overlayInsets().top;
+  const lead = scrollY - 1 + overlayInsets().top - GRID.band; // rectDist's coordinates
   let prev = null, next = null;
   for (const p of ps) {
     if (rectDist(p.getBoundingClientRect()) <= lead) prev = p;
