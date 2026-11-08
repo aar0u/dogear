@@ -94,7 +94,8 @@ export const player = {
   chunkIdx: -1,
   audio: null,     // element playing the current chunk
   standby: null,   // element preloading the next chunk (double buffer)
-  nextUrl: null,   // what standby holds; null = nothing usable preloaded
+  standbyKey: null, // "ci:k" of the chunk standby holds; null = nothing usable preloaded
+  marks: null,     // [[ms, chunk offset], ...] of the chunk playing, when the server sent them
   status: "",      // "" | "loading" | "error"
   seekOff: null,   // chain engine: land the first chunk at this char offset
 };
@@ -383,7 +384,9 @@ function makeAudio() {
     const off = player.seekOff;
     player.seekOff = null;
     if (c && off > c.start && Number.isFinite(a.duration) && a.duration > 0) {
-      a.currentTime = Math.min(1, (off - c.start) / c.chars) * a.duration;
+      a.currentTime = player.marks
+        ? Math.min(a.duration, ttsCore.markTimeFor(player.marks, off - c.start))
+        : Math.min(1, (off - c.start) / c.chars) * a.duration;
       // landed: the pre-roll is over. Holding on until the estimate reaches
       // the request could outlast the whole chunk (the char map is only
       // proportional), leaving the voice running with no mark.
@@ -398,7 +401,7 @@ function makeAudio() {
   }));
   a.addEventListener("error", () => {
     if (a === player.audio) { player.playing = false; player.status = "error"; updatePlayerBar(); }
-    else player.nextUrl = null;
+    else player.standbyKey = null;
   });
   return a;
 }
@@ -428,42 +431,109 @@ function playFrom(ci, off) {
     .catch(() => { player.status = "error"; updatePlayerBar(); });
 }
 
+// A chunk's audio and its sentence marks come in one response (the marks are
+// the X-Tts-Marks header, invisible to an <audio src>), so the chain engine
+// fetches the bytes itself and hands the element a blob URL.
+const chunkLoads = new Map(); // "ci:k" -> Promise<{ url, marks }>
+const chunkReady = new Map(); // "ci:k" -> { url, marks }, once loaded
+
+function parseMarks(header) {
+  try {
+    const m = JSON.parse(header);
+    return Array.isArray(m) && m.length && m.every((p) => Array.isArray(p) && p.length === 2) ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadChunk(ci, k) {
+  const key = `${ci}:${k}`;
+  let p = chunkLoads.get(key);
+  if (!p) {
+    const file = state.manifest.chapters[ci].file;
+    p = fetch(ttsUrl(file, k)).then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const v = { url: URL.createObjectURL(blob), marks: parseMarks(res.headers.get("x-tts-marks")) };
+      chunkReady.set(key, v);
+      return v;
+    });
+    p.catch(() => chunkLoads.delete(key));
+    chunkLoads.set(key, p);
+  }
+  return p;
+}
+
+// drop every loaded chunk except those named in `keep`
+function dropChunks(keep = []) {
+  for (const [key, v] of chunkReady) {
+    if (keep.includes(key)) continue;
+    URL.revokeObjectURL(v.url);
+    chunkReady.delete(key);
+    chunkLoads.delete(key);
+  }
+}
+
+let chunkGen = 0;
+
 function playChunk(k) {
   const c = player.chunks[k];
   if (!c) return advanceChapter(1);
   player.chunkIdx = k;
-  const file = state.manifest.chapters[player.chapIdx].file;
-  const url = ttsUrl(file, k);
-  // with the screen off, everything must happen on the one element that is
-  // already playing: iOS refuses play() on a different element (and kills
-  // the session) in the background — a src swap on the same element is the
-  // only chain with a chance there
-  const hidden = document.visibilityState === "hidden";
-  if (!hidden && player.nextUrl === url) {
-    // the standby element already fetched and decoded this chunk — swap it
-    // in and playback starts with no gap
-    const a = player.standby;
-    player.standby = player.audio;
-    player.standby.pause();
-    player.audio = a;
-  } else {
-    player.audio.src = url;
-  }
-  player.nextUrl = null;
-  player.status = player.audio.readyState >= 3 ? "" : "loading";
-  player.audio.play().catch(() => {
+  const ci = player.chapIdx;
+  const key = `${ci}:${k}`;
+  const gen = ++chunkGen;
+  const begin = (v) => {
+    if (gen !== chunkGen || !player.on) return;
+    // with the screen off, everything must happen on the one element that is
+    // already playing: iOS refuses play() on a different element (and kills
+    // the session) in the background — a src swap on the same element is the
+    // only chain with a chance there
+    const hidden = document.visibilityState === "hidden";
+    if (!hidden && player.standbyKey === key) {
+      // the standby element already holds and decodes this chunk — swap it
+      // in and playback starts with no gap
+      const a = player.standby;
+      player.standby = player.audio;
+      player.standby.pause();
+      player.audio = a;
+    } else {
+      player.audio.src = v.url;
+    }
+    player.standbyKey = null;
+    player.marks = v.marks;
+    player.status = player.audio.readyState >= 3 ? "" : "loading";
+    player.audio.play().catch(() => {
+      player.status = "error";
+      updatePlayerBar();
+      retryOnVisible();
+    });
+    // load the next chunk while this one plays — synthesis takes seconds,
+    // and the standby element decodes it so the swap has no gap
+    const nextKey = `${ci}:${k + 1}`;
+    dropChunks([key, nextKey]);
+    if (player.chunks[k + 1]) {
+      loadChunk(ci, k + 1).then((nv) => {
+        if (gen !== chunkGen || !player.on || document.visibilityState === "hidden") return;
+        player.standby.src = nv.url;
+        player.standbyKey = nextKey;
+      }).catch(() => { /* playChunk fetches it again when its turn comes */ });
+    }
+    updatePlayerBar();
+    setMediaSession();
+  };
+  const ready = chunkReady.get(key);
+  if (ready) return begin(ready);
+  // not here yet: stop the old audio so a skip does not keep talking over the wait
+  player.audio.pause();
+  player.status = "loading";
+  updatePlayerBar();
+  loadChunk(ci, k).then(begin).catch(() => {
+    if (gen !== chunkGen) return;
     player.status = "error";
     updatePlayerBar();
     retryOnVisible();
   });
-  // preload the next chunk into the standby element — synthesis takes
-  // seconds on an R2 miss, and this doubles as the only warm-up request
-  if (player.chunks[k + 1] && !hidden) {
-    player.nextUrl = ttsUrl(file, k + 1);
-    player.standby.src = player.nextUrl;
-  }
-  updatePlayerBar();
-  setMediaSession();
 }
 
 // a play() the OS refused while the screen was off gets one retry when the
@@ -590,7 +660,10 @@ export function closePlayer() {
   player.chapIdx = -1;
   player.chunkIdx = -1;
   player.chunks = [];
-  player.nextUrl = null;
+  player.standbyKey = null;
+  player.marks = null;
+  chunkGen++;
+  dropChunks();
   player.seekOff = null;
   alignForward = false;
   skipPendClear();
@@ -764,7 +837,10 @@ async function feedStream(gen) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
     if (gen !== stream.gen) return;
-    stream.pendingSeg = { ci: next.ci, k: next.k, start: next.chunk.start, chars: next.chunk.chars };
+    stream.pendingSeg = {
+      ci: next.ci, k: next.k, start: next.chunk.start, chars: next.chunk.chars,
+      marks: parseMarks(res.headers.get("x-tts-marks")),
+    };
     stream.sb.appendBuffer(buf);
     stream.feedCi = next.ci;
     stream.feedK = next.k + 1;
@@ -836,12 +912,25 @@ function onStreamUpdateEnd(gen) {
       const off = stream.seekOff;
       stream.seekOff = -1;
       if (off > seg.start && seg.chars > 0) {
-        stream.el.currentTime = t0 + Math.min(1, (off - seg.start) / seg.chars) * (t1 - t0);
+        stream.el.currentTime = segTimeFor(stream.segs[stream.segs.length - 1], off);
         startFloor = -1; // landed: see the chain engine's loadedmetadata
       }
     }
   }
   feedStream(gen);
+}
+
+// Timeline position <-> chapter char offset inside one appended chunk: the
+// server's sentence marks when it sent them, else proportional to length.
+function segTimeFor(seg, off) {
+  if (seg.marks) return seg.t0 + Math.min(seg.t1 - seg.t0, ttsCore.markTimeFor(seg.marks, off - seg.start));
+  return seg.t0 + Math.min(1, (off - seg.start) / seg.chars) * (seg.t1 - seg.t0);
+}
+
+function segOffsetAt(seg, now) {
+  if (seg.marks) return seg.start + ttsCore.markOffsetAt(seg.marks, now - seg.t0);
+  const frac = Math.min(1, Math.max(0, (now - seg.t0) / (seg.t1 - seg.t0 || 1)));
+  return Math.min(seg.start + Math.floor(frac * seg.chars), seg.start + seg.chars - 1);
 }
 
 // keep ~30 s of already-heard audio, drop the rest so hours of listening
@@ -862,8 +951,7 @@ function onStreamTime() {
   if (!player.playing || !stream.segs.length) return;
   const now = stream.el.currentTime;
   const seg = stream.segs.find((s) => now >= s.t0 && now < s.t1) ?? stream.segs[stream.segs.length - 1];
-  const frac = Math.min(1, Math.max(0, (now - seg.t0) / (seg.t1 - seg.t0 || 1)));
-  const off = Math.min(seg.start + Math.floor(frac * seg.chars), seg.start + seg.chars - 1);
+  const off = segOffsetAt(seg, now);
 
   // pre-roll: the snapped-back sentence before the requested start — hold
   // the page and the bookmark until narration reaches the request
@@ -905,7 +993,7 @@ function streamSeekTo(ci, off) {
   const k = ttsCore.chunkIndexFor(chunks, off);
   const seg = stream.segs.find((s) => s.ci === ci && s.k === k);
   if (seg && stream.el) {
-    stream.el.currentTime = seg.t0 + Math.min(1, Math.max(0, (off - seg.start) / seg.chars)) * (seg.t1 - seg.t0);
+    stream.el.currentTime = segTimeFor(seg, off);
     stream.el.play().catch(() => { /* already playing or blocked; bar shows state */ });
     return;
   }
@@ -1409,7 +1497,11 @@ function onAudioTime() {
   const spoken = Number.isFinite(dur) && dur > 0
     ? (player.audio.currentTime / dur) * c.chars
     : player.audio.currentTime * ttsCore.CHARS_PER_SEC;
-  const off = Math.min(c.start + Math.floor(spoken), c.start + c.chars - 1);
+  // with the server's sentence marks the position is exact (the sentence
+  // being spoken); without them it is the proportional estimate
+  const off = player.marks
+    ? c.start + ttsCore.markOffsetAt(player.marks, player.audio.currentTime)
+    : Math.min(c.start + Math.floor(spoken), c.start + c.chars - 1);
   // pre-roll before the requested start: hold the page and the bookmark
   if (startFloor >= 0) {
     if (off < startFloor) return;

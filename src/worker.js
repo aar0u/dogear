@@ -9,7 +9,7 @@
 //   state/marks/<id>.json   {marks: [...], updated_at}
 //   state/settings.json     {data, updated_at}
 
-import { chunkChapter, ttsPrompt } from "../public/tts-core.mjs";
+import { alignMarks, chunkChapter, ttsPrompt } from "../public/tts-core.mjs";
 import { PACK_NAMES } from "../public/vendor/wasmtts/pack-manifest.mjs";
 import { edgeSynthesize } from "./edge-tts.js";
 import { makeDav } from "./dav.js";
@@ -417,18 +417,23 @@ async function handleTts(request, env, path) {
   const chunk = chunkChapter(await res.text())[chunkIdx];
   if (!chunk) return json({ error: "no such chunk" }, 404);
 
-  let bytes;
+  let bytes, sentences;
   try {
-    bytes = await edgeSynthesize(ttsPrompt(chunk.text));
+    ({ audio: bytes, sentences } = await edgeSynthesize(ttsPrompt(chunk.text)));
   } catch (err) {
     // the player falls back to the offline engine on this status
     console.error(`tts ${id}/${file}/${chunkIdx}: ${err?.message ?? err}`);
     return json({ error: "tts failed" }, 502);
   }
   // the client's ?v=<manifest.generatedAt> makes a re-split book a new URL
-  return new Response(bytes, {
-    headers: { "content-type": "audio/mpeg", "cache-control": "public, max-age=2592000, immutable" },
-  });
+  // X-Tts-Marks: [[ms into the audio, char offset in the chunk], ...] — where
+  // each spoken sentence starts, so the reader marks and seeks exactly
+  // instead of guessing from the chunk's length. Absent when the sentences
+  // cannot be followed in the text.
+  const headers = { "content-type": "audio/mpeg", "cache-control": "public, max-age=2592000, immutable" };
+  const marks = alignMarks(chunk.text, sentences);
+  if (marks) headers["x-tts-marks"] = JSON.stringify(marks);
+  return new Response(bytes, { headers });
 }
 
 // ---------- offline TTS voice pack ----------

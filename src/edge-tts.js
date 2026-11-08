@@ -90,7 +90,26 @@ function ssml(text, voice, lang) {
   );
 }
 
-// text → Uint8Array of MP3 bytes
+// The service reports each sentence it speaks as an audio.metadata text frame:
+// Offset/Duration in 100 ns ticks from the start of the audio.
+export function parseSentenceBoundaries(frame) {
+  const body = frame.slice(frame.indexOf("\r\n\r\n") + 4);
+  let meta;
+  try { meta = JSON.parse(body).Metadata; } catch { return []; }
+  const out = [];
+  for (const m of Array.isArray(meta) ? meta : []) {
+    if (m?.Type !== "SentenceBoundary") continue;
+    const d = m.Data ?? {};
+    out.push({
+      t0: Math.round(Number(d.Offset) / 1e4), // ms
+      t1: Math.round((Number(d.Offset) + Number(d.Duration)) / 1e4),
+      text: String(d.text?.Text ?? ""),
+    });
+  }
+  return out;
+}
+
+// text → { audio: Uint8Array of MP3 bytes, sentences: [{ t0, t1, text }] }
 export async function edgeSynthesize(text, voice = "zh-CN-XiaoxiaoNeural") {
   const lang = voice.split("-").slice(0, 2).join("-");
   const connectionId = crypto.randomUUID().replaceAll("-", "");
@@ -122,7 +141,7 @@ export async function edgeSynthesize(text, voice = "zh-CN-XiaoxiaoNeural") {
   const ts = new Date().toString();
   ws.send(
     `X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
-    `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`,
+    `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"true","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`,
   );
   ws.send(
     `X-RequestId:${connectionId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n` +
@@ -130,6 +149,7 @@ export async function edgeSynthesize(text, voice = "zh-CN-XiaoxiaoNeural") {
   );
 
   const parts = []; // Promise<Uint8Array|null> per binary frame
+  const sentences = [];
   return await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       ws.close();
@@ -139,6 +159,7 @@ export async function edgeSynthesize(text, voice = "zh-CN-XiaoxiaoNeural") {
 
     ws.addEventListener("message", (ev) => {
       if (typeof ev.data === "string") {
+        if (ev.data.includes("Path:audio.metadata")) sentences.push(...parseSentenceBoundaries(ev.data));
         if (!ev.data.includes("Path:turn.end")) return; // turn.start / response / audio.metadata
         clearTimeout(timer);
         ws.close();
@@ -150,7 +171,7 @@ export async function edgeSynthesize(text, voice = "zh-CN-XiaoxiaoNeural") {
           const out = new Uint8Array(audio.reduce((n, p) => n + p.length, 0));
           let off = 0;
           for (const p of audio) { out.set(p, off); off += p.length; }
-          resolve(out);
+          resolve({ audio: out, sentences });
         }, fail);
         return;
       }

@@ -189,3 +189,51 @@ export function ttsPrompt(chunkText) {
   return chunkText.replace(/[\s　]+/g, " ").trim()
     .replace(/(?<=\p{Script=Han}) (?=\p{Script=Han})/gu, "，");
 }
+
+// The synthesizer reports the sentences it spoke as text (t0/t1 in ms), with
+// the chunk's quotes and line breaks stripped and the commas ttsPrompt adds.
+// Find each one's first char in the chunk's raw text: [[t0, offset in chunk]].
+// A char the raw text lacks (an added comma) is skipped; a char further than
+// LOOKAHEAD raw chars on (a quote, an indent, a newline) is not searched for.
+// null when the text cannot be followed — the caller falls back to the
+// proportional estimate rather than trusting a bad map.
+// Position in a chunk from its marks: the char offset (in the chunk) of the
+// sentence being spoken `sec` seconds in, and the time a sentence containing
+// chunk offset `rel` starts at. Before the first mark the first sentence counts.
+export function markOffsetAt(marks, sec) {
+  let at = marks[0][1];
+  for (const [t, off] of marks) {
+    if (t > sec * 1000) break;
+    at = off;
+  }
+  return at;
+}
+
+export function markTimeFor(marks, rel) {
+  let at = marks[0][0];
+  for (const [t, off] of marks) {
+    if (off > rel) break;
+    at = t;
+  }
+  return at / 1000;
+}
+
+const LOOKAHEAD = 6;
+export function alignMarks(raw, sentences) {
+  const marks = [];
+  let cur = 0;
+  for (const s of sentences) {
+    const chars = [...s.text].filter((ch) => ch.trim());
+    if (!chars.length) continue;
+    let first = -1;
+    for (const ch of chars) {
+      const at = raw.slice(cur, cur + LOOKAHEAD).indexOf(ch);
+      if (at < 0) continue;
+      cur += at + 1;
+      if (first < 0) first = cur - 1;
+    }
+    if (first < 0 || (marks.length && first <= marks[marks.length - 1][1])) return null;
+    marks.push([s.t0, first]);
+  }
+  return marks.length ? marks : null;
+}

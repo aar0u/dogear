@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import worker from "../src/worker.js";
 import { makeDav, parseListing } from "../src/dav.js";
-import { secMsGec } from "../src/edge-tts.js";
+import { parseSentenceBoundaries, secMsGec } from "../src/edge-tts.js";
 import { decodeText, publishText } from "./publish-book.mjs";
 import { startMockDav } from "./mock-dav.mjs";
 
@@ -174,6 +174,14 @@ try {
   // generate_sec_ms_gec_v2(1762500000)
   assert.equal(await secMsGec(1762500000),
     "713C2BF431375CEC-2322C6B3E513D50276E09641CE873C8914A93295C8DDA6121A6CBE99EDD41784");
+  // an audio.metadata frame as the service sends it (captured from a live run)
+  assert.deepEqual(
+    parseSentenceBoundaries(
+      'X-Timestamp:t\r\nContent-Type:application/json; charset=utf-8\r\nPath:audio.metadata\r\n\r\n' +
+      '{"Metadata":[{"Type":"SentenceBoundary","Data":{"Offset":1000000,"Duration":25875000,"text":{"Text":"他推开门。","Length":5,"BoundaryType":"SentenceBoundary"}}},{"Type":"SessionEnd","Data":{"Offset":1}}]}'),
+    [{ t0: 100, t1: 2688, text: "他推开门。" }],
+  );
+  assert.deepEqual(parseSentenceBoundaries("Path:audio.metadata\r\n\r\nnot json"), []);
   console.log("test-api ok");
 } finally {
   await dav.close();
