@@ -106,6 +106,14 @@ export const player = {
 // one-shot, cleared on arrival and on any explicit ⏮/⏭.
 let startFloor = -1;
 
+// While the pre-roll holds the page and the bookmark, the sentence the reading
+// opened on is still marked. The playhead-to-char estimate can stay below the
+// sentence's first char for the whole sentence (seen after switching engines),
+// and the mark then only appeared a paragraph later.
+function holdAtStart() {
+  if (!$("#ttsHl")) markSpoken(startFloor);
+}
+
 function ttsUrl(file, idx) {
   const v = state.manifest?.generatedAt ?? "0";
   return `/api/tts/${encodeURIComponent(state.id)}/${encodeURIComponent(file)}/${idx}?v=${encodeURIComponent(v)}`;
@@ -861,7 +869,7 @@ function onStreamTime() {
   // pre-roll: the snapped-back sentence before the requested start — hold
   // the page and the bookmark until narration reaches the request
   if (startFloor >= 0) {
-    if (off < startFloor) return;
+    if (off < startFloor) return holdAtStart();
     startFloor = -1;
   }
 
@@ -1211,7 +1219,7 @@ function onWasmSegment(seg) {
 // discipline (onStreamTime), on upstream's units.
 function wasmPosition(ci, off) {
   if (startFloor >= 0) {
-    if (ci === player.chapIdx && off < startFloor) return;
+    if (ci === player.chapIdx && off < startFloor) return holdAtStart();
     startFloor = -1;
   }
   if (ci !== player.chapIdx) {
@@ -1405,7 +1413,7 @@ function onAudioTime() {
   const off = Math.min(c.start + Math.floor(spoken), c.start + c.chars - 1);
   // pre-roll before the requested start: hold the page and the bookmark
   if (startFloor >= 0) {
-    if (off < startFloor) return;
+    if (off < startFloor) return holdAtStart();
     startFloor = -1;
   }
   reportOffset(off);
