@@ -106,14 +106,6 @@ export const player = {
 // one-shot, cleared on arrival and on any explicit ⏮/⏭.
 let startFloor = -1;
 
-// While the pre-roll holds the page and the bookmark, the sentence the reading
-// opened on is still marked. The playhead-to-char estimate can stay below the
-// sentence's first char for the whole sentence (seen after switching engines),
-// and the mark then only appeared a paragraph later.
-function holdAtStart() {
-  if (!$("#ttsHl")) markSpoken(startFloor);
-}
-
 function ttsUrl(file, idx) {
   const v = state.manifest?.generatedAt ?? "0";
   return `/api/tts/${encodeURIComponent(state.id)}/${encodeURIComponent(file)}/${idx}?v=${encodeURIComponent(v)}`;
@@ -390,8 +382,13 @@ function makeAudio() {
     const c = player.chunks[player.chunkIdx];
     const off = player.seekOff;
     player.seekOff = null;
-    if (c && off > c.start && Number.isFinite(a.duration) && a.duration > 0)
+    if (c && off > c.start && Number.isFinite(a.duration) && a.duration > 0) {
       a.currentTime = Math.min(1, (off - c.start) / c.chars) * a.duration;
+      // landed: the pre-roll is over. Holding on until the estimate reaches
+      // the request could outlast the whole chunk (the char map is only
+      // proportional), leaving the voice running with no mark.
+      startFloor = -1;
+    }
   }));
   a.addEventListener("timeupdate", active(onAudioTime));
   // the unlock silence also ends — it must not advance the narration
@@ -838,8 +835,10 @@ function onStreamUpdateEnd(gen) {
     if (stream.seekOff >= 0) {
       const off = stream.seekOff;
       stream.seekOff = -1;
-      if (off > seg.start && seg.chars > 0)
+      if (off > seg.start && seg.chars > 0) {
         stream.el.currentTime = t0 + Math.min(1, (off - seg.start) / seg.chars) * (t1 - t0);
+        startFloor = -1; // landed: see the chain engine's loadedmetadata
+      }
     }
   }
   feedStream(gen);
@@ -869,7 +868,7 @@ function onStreamTime() {
   // pre-roll: the snapped-back sentence before the requested start — hold
   // the page and the bookmark until narration reaches the request
   if (startFloor >= 0) {
-    if (off < startFloor) return holdAtStart();
+    if (off < startFloor) return;
     startFloor = -1;
   }
 
@@ -1219,7 +1218,7 @@ function onWasmSegment(seg) {
 // discipline (onStreamTime), on upstream's units.
 function wasmPosition(ci, off) {
   if (startFloor >= 0) {
-    if (ci === player.chapIdx && off < startFloor) return holdAtStart();
+    if (ci === player.chapIdx && off < startFloor) return;
     startFloor = -1;
   }
   if (ci !== player.chapIdx) {
@@ -1413,7 +1412,7 @@ function onAudioTime() {
   const off = Math.min(c.start + Math.floor(spoken), c.start + c.chars - 1);
   // pre-roll before the requested start: hold the page and the bookmark
   if (startFloor >= 0) {
-    if (off < startFloor) return holdAtStart();
+    if (off < startFloor) return;
     startFloor = -1;
   }
   reportOffset(off);
